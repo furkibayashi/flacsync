@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  /* Gece plak dükkânı: mürekkep moru zemin, kaset amberi vurgu */
+  --color-night: #17151f;
+  --color-panel: #201d2b;
+  --color-raised: #2a2638;
+  --color-rule: #383349;
+  --color-paper: #efeaf6;
+  --color-dust: #a69fb8;
+  --color-fade: #7a7390;
+  --color-amber: #f2b544;
+  --color-amber-hi: #ffc95e;
+  --color-danger: #f07167;
+
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --animate-record: record-spin 1.8s linear infinite;
+  --animate-rise: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+
+  @keyframes record-spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+:root {
+  color-scheme: dark;
+  /* Kapaktan alınan renk; kapak yokken soluk mor */
+  --art: 132 108 204;
+}
+
+html,
+body {
+  background-color: var(--color-night);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-amber) 40%, transparent);
+  color: var(--color-paper);
+}
+
+/* base katmanında: bileşenler (ör. kendi çerçevesi olan arama kutusu) utility ile ezebilsin */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 3px;
+  }
+}
+
+/* Plak yivleri: ince eşmerkezli halkalar + ışık yansıması */
+.vinyl-grooves {
+  background:
+    conic-gradient(from 210deg, transparent 0 8%, rgb(255 255 255 / 0.07) 12%, transparent 18% 58%, rgb(255 255 255 / 0.05) 62%, transparent 68%),
+    repeating-radial-gradient(circle at 50% 50%, #121018 0 1.5px, #1c1925 1.5px 3px);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.04),
+    0 24px 48px -16px rgb(0 0 0 / 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

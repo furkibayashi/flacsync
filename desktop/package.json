@@ -1,0 +1,105 @@
+{
+  "name": "desktop",
+  "productName": "FlacSync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FlacSync masaüstü uygulaması",
+  "author": "FlacSync contributors",
+  "license": "MIT",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/make-icon.mjs && node scripts/build.mjs",
+    "dev": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --win --x64 --publish never",
+    "typecheck": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "com.flacsync.desktop",
+    "electronVersion": "45.2.3",
+    "productName": "FlacSync",
+    "copyright": "Copyright © 2026 FlacSync contributors",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend"
+      },
+      {
+        "from": "../node_modules/yt-dlp-exec/bin/yt-dlp.exe",
+        "to": "bin/yt-dlp.exe"
+      },
+      {
+        "from": "../node_modules/ffmpeg-static/ffmpeg.exe",
+        "to": "bin/ffmpeg.exe"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "licenses/LICENSE.txt"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "licenses/THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "../node_modules/ffmpeg-static/ffmpeg.exe.LICENSE",
+        "to": "licenses/ffmpeg/LICENSE.txt"
+      },
+      {
+        "from": "../node_modules/ffmpeg-static/ffmpeg.exe.README",
+        "to": "licenses/ffmpeg/README.txt"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FlacSync",
+      "uninstallDisplayName": "FlacSync",
+      "license": "build/license.txt",
+      "installerLanguages": [
+        "tr_TR",
+        "en_US"
+      ],
+      "language": "1055",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "FlacSync-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "FlacSync-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2"
+  }
+}

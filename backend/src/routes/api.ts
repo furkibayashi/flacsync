@@ -1,0 +1,260 @@
+import { Router, type Response } from 'express';
+import yazl from 'yazl';
+import { z } from 'zod';
+import { MAX_COLLECTION_TRACKS } from '../services/metadata/normalize.js';
+import { jobsService, toPublicSource, type PublicJob } from '../services/jobs.service.js';
+import { MetadataError, metadataService } from '../services/metadata.service.js';
+import { finalizeMetadata } from '../services/metadata/normalize.js';
+import { resolverService } from '../services/resolver.service.js';
+import { searchService } from '../services/search.service.js';
+import { HttpError } from '../utils/http-error.js';
+
+// ---------------------------------------------------------------------------
+// Doğrulama şemaları
+// ---------------------------------------------------------------------------
+
+const urlField = z.string().trim().min(1, 'url zorunlu').max(2048);
+const formatField = z.enum(['mp3', 'flac']).default('mp3');
+
+const metadataSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  artist: z.string().trim().min(1).max(500),
+  album: z.string().max(500).nullable().default(null),
+  releaseDate: z.string().max(10).nullable().default(null),
+  coverUrl: z.string().url().max(2048).nullable().default(null),
+  isrc: z.string().max(20).nullable().default(null),
+  duration: z.number().int().positive().max(4 * 60 * 60).nullable().default(null),
+});
+
+const parseBody = z.object({ url: urlField });
+const resolveBody = z.union([z.object({ url: urlField }), z.object({ metadata: metadataSchema })]);
+const downloadBody = z.object({ url: urlField, format: formatField });
+const jobParams = z.object({ id: z.string().uuid('Geçersiz iş kimliği') });
+const overridesSchema = z
+  .object({
+    album: z.string().trim().max(500).optional(),
+    releaseDate: z.string().trim().max(10).optional(),
+    coverUrl: z.string().url().max(2048).optional(),
+  })
+  .strict();
+const extrasSchema = z
+  .object({
+    trackNumber: z.number().int().min(1).max(999).optional(),
+    trackTotal: z.number().int().min(1).max(999).optional(),
+    discNumber: z.number().int().min(1).max(99).optional(),
+    albumArtist: z.string().trim().max(500).optional(),
+  })
+  .strict();
+const batchBody = z.object({
+  name: z.string().trim().min(1).max(200),
+  format: formatField,
+  items: z
+    .array(z.object({ url: urlField, overrides: overridesSchema.optional(), extras: extrasSchema.optional() }))
+    .min(1, 'En az bir parça seçin')
+    .max(MAX_COLLECTION_TRACKS),
+});
+const searchBody = z.object({
+  query: z.string().trim().min(2, 'En az 2 karakter girin').max(200),
+  limit: z.number().int().min(1).max(20).default(8),
+});
+
+function assertSupported(url: string): void {
+  if (!metadataService.detectPlatform(url)) {
+    throw new MetadataError(
+      'UNSUPPORTED_PLATFORM',
+      'Desteklenmeyen link. Spotify, Apple Music, Deezer veya YouTube Music linki girin.',
+    );
+  }
+}
+
+function requireJob(id: string): PublicJob {
+  const job = jobsService.get(id);
+  if (!job) throw new HttpError(404, 'JOB_NOT_FOUND', 'İndirme işi bulunamadı veya süresi doldu');
+  return job;
+}
+
+function sendFile(res: Response, jobId: string): void {
+  const file = jobsService.getFile(jobId);
+  if (!file) throw new HttpError(409, 'FILE_NOT_READY', 'Dosya henüz hazır değil');
+  res.type(file.mimeType);
+  // Content-Disposition: UTF-8 dosya adı (RFC 5987) Express tarafından eklenir
+  res.download(file.path, file.name);
+}
+
+// ---------------------------------------------------------------------------
+
+export const apiRouter = Router();
+
+apiRouter.get('/health', (_req, res) => {
+  res.json({ status: 'ok', uptime: Math.round(process.uptime()) });
+});
+
+/** Şarkı adı → tüm platformlarda arama, birleştirilmiş ve sıralanmış sonuçlar */
+apiRouter.post('/search', async (req, res) => {
+  const { query, limit } = searchBody.parse(req.body);
+  res.json(await searchService.search(query, limit));
+});
+
+/** Link → tek şarkıysa metadata, albüm / çalma listesiyse parça listesi */
+apiRouter.post('/lookup', async (req, res) => {
+  const { url } = parseBody.parse(req.body);
+  assertSupported(url);
+  res.json(await metadataService.lookup(url));
+});
+
+// --- Toplu indirme (albüm / çalma listesi / seçili parçalar) ----------------
+
+apiRouter.post('/batch', (req, res) => {
+  const body = batchBody.parse(req.body);
+  body.items.forEach((item) => assertSupported(item.url));
+  const batch = jobsService.createBatch(body);
+  res.status(202).location(`${req.baseUrl}/batch/${batch.id}`).json(batch);
+});
+
+apiRouter.get('/batch/:id', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  const data = jobsService.getBatch(id);
+  if (!data) throw new HttpError(404, 'BATCH_NOT_FOUND', 'Toplu indirme bulunamadı veya süresi doldu');
+  res.json(data);
+});
+
+/** Toplu indirme ilerleme akışı: önce tam durum ("snapshot"), sonra parça güncellemeleri ("job") */
+apiRouter.get('/batch/:id/events', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  const initial = jobsService.getBatch(id);
+  if (!initial) throw new HttpError(404, 'BATCH_NOT_FOUND', 'Toplu indirme bulunamadı veya süresi doldu');
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  };
+  const unsubscribe = jobsService.subscribeBatch(id, (job, batch) => {
+    write('job', { job, batch });
+    if (jobsService.isBatchTerminal(batch)) close();
+  });
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000);
+  req.on('close', close);
+
+  write('snapshot', initial);
+  if (jobsService.isBatchTerminal(initial.batch)) close();
+});
+
+/** Tamamlanan parçaları tek ZIP olarak indir (ses dosyaları zaten sıkıştırılmış → "store") */
+apiRouter.get('/batch/:id/zip', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  const data = jobsService.getBatch(id);
+  if (!data) throw new HttpError(404, 'BATCH_NOT_FOUND', 'Toplu indirme bulunamadı veya süresi doldu');
+  const files = jobsService.batchFiles(id);
+  if (files.length === 0) throw new HttpError(409, 'FILE_NOT_READY', 'Henüz tamamlanan parça yok');
+
+  const zip = new yazl.ZipFile();
+  for (const file of files) zip.addFile(file.path, `${data.batch.folder}/${file.name}`, { compress: false });
+  zip.end();
+
+  res.attachment(`${data.batch.folder}.zip`);
+  res.type('application/zip');
+  zip.outputStream.pipe(res);
+});
+
+/** URL → standart metadata */
+apiRouter.post('/parse', async (req, res) => {
+  const { url } = parseBody.parse(req.body);
+  assertSupported(url);
+  res.json(await metadataService.extractDetailed(url));
+});
+
+/** URL veya metadata → eşleşen ses kaynağı */
+apiRouter.post('/resolve', async (req, res) => {
+  const body = resolveBody.parse(req.body);
+  let metadata;
+  if ('url' in body) {
+    assertSupported(body.url);
+    metadata = await metadataService.extract(body.url);
+  } else {
+    metadata = finalizeMetadata(body.metadata);
+  }
+  const source = await resolverService.resolve(metadata);
+  res.json({ metadata, source: toPublicSource(source) });
+});
+
+/** Arka planda indirme işi başlatır → 202 + iş kimliği (ilerleme SSE ile izlenir) */
+apiRouter.post('/download', (req, res) => {
+  const { url, format } = downloadBody.parse(req.body);
+  assertSupported(url);
+  const job = jobsService.create(url, format);
+  res.status(202).location(`${req.baseUrl}/download/${job.id}`).json(job);
+});
+
+/**
+ * Tek istekte indir: GET /api/download?url=...&format=mp3
+ * İş bitene kadar bekler ve etiketlenmiş dosyayı doğrudan gönderir (curl / tarayıcı linki için).
+ */
+apiRouter.get('/download', async (req, res) => {
+  const { url, format } = downloadBody.parse(req.query);
+  assertSupported(url);
+  const { id } = jobsService.create(url, format);
+  const job = await jobsService.waitFor(id);
+  if (!job) throw new HttpError(500, 'JOB_LOST', 'İndirme işi kayboldu');
+  if (job.status === 'failed') {
+    throw new HttpError(job.error?.status ?? 502, job.error?.code ?? 'DOWNLOAD_FAILED', job.error?.message ?? 'İndirme başarısız');
+  }
+  sendFile(res, id);
+});
+
+/** İşin anlık durumu */
+apiRouter.get('/download/:id', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  res.json(requireJob(id));
+});
+
+/** İlerleme akışı (Server-Sent Events) */
+apiRouter.get('/download/:id/events', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  const initial = requireJob(id);
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // nginx arkasında tamponlamayı kapatır
+  });
+
+  const send = (job: PublicJob) => res.write(`event: progress\ndata: ${JSON.stringify(job)}\n\n`);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  };
+
+  const unsubscribe = jobsService.subscribe(id, (job) => {
+    send(job);
+    if (jobsService.isTerminal(job)) close();
+  });
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000);
+  req.on('close', close);
+
+  send(initial);
+  if (jobsService.isTerminal(initial)) close();
+});
+
+/** Tamamlanan dosyayı indir */
+apiRouter.get('/download/:id/file', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  requireJob(id);
+  sendFile(res, id);
+});
