@@ -5,10 +5,11 @@ import { http } from './metadata/http.js';
 import { msToSeconds, normalizeIsrc, toYear } from './metadata/normalize.js';
 import { SpotifyProvider } from './metadata/providers/spotify.provider.js';
 import type { Platform } from './metadata/types.js';
-import { rankCandidates } from './search/ranking.js';
-import type { SearchCandidate, SearchResponse, SourceStatus } from './search/types.js';
+import { artistSimilarity, splitArtists, stripTitleNoise, titleSimilarity } from './matcher/similarity.js';
+import { rankAlbums, rankCandidates } from './search/ranking.js';
+import type { AlbumCandidate, AlbumResult, SearchCandidate, SearchResponse, SourceStatus } from './search/types.js';
 
-export type { SearchCandidate, SearchResponse, SearchResult } from './search/types.js';
+export type { AlbumResult, SearchCandidate, SearchResponse, SearchResult } from './search/types.js';
 
 const PER_SOURCE_LIMIT = 15;
 const CACHE_TTL_MS = 10 * 60_000;
@@ -35,6 +36,41 @@ interface ITunesSearchResult {
   trackTimeMillis?: number;
   trackViewUrl?: string;
   kind?: string;
+}
+
+interface DeezerAlbum {
+  id: number;
+  title: string;
+  link?: string;
+  cover_xl?: string;
+  cover_big?: string;
+  nb_tracks?: number;
+  record_type?: string;
+  artist: { name: string };
+}
+
+interface ITunesAlbum {
+  collectionId?: number;
+  collectionName?: string;
+  artistName?: string;
+  artworkUrl100?: string;
+  trackCount?: number;
+  releaseDate?: string;
+}
+
+const ALBUM_LIMIT = 4;
+
+function deezerAlbumToCandidate(a: DeezerAlbum, position: number): AlbumCandidate {
+  return {
+    source: 'deezer',
+    title: a.title,
+    artist: a.artist.name,
+    url: a.link ?? `https://www.deezer.com/album/${a.id}`,
+    coverUrl: a.cover_xl ?? a.cover_big ?? null,
+    trackCount: a.nb_tracks ?? null,
+    releaseYear: null,
+    position,
+  };
 }
 
 export class SearchError extends Error {
@@ -69,6 +105,12 @@ export class SearchService {
       'youtube-music': 'skipped',
     };
 
+    // Albümler şarkılarla paralel aranır; başarısız olursa bölüm boş kalır
+    const albumsPromise = this.searchAlbums(q).catch((err) => {
+      logger.warn({ err }, 'Albüm araması başarısız');
+      return [] as AlbumCandidate[];
+    });
+
     const tasks: Array<[Platform, Promise<SearchCandidate[]>]> = [
       ['deezer', this.searchDeezer(q)],
       ['apple-music', this.searchITunes(q)],
@@ -100,9 +142,10 @@ export class SearchService {
     }
 
     const results = rankCandidates(q, candidates, limit);
-    if (results.length === 0) throw new SearchError(`"${q}" için sonuç bulunamadı`);
+    const albums = rankAlbums(q, await albumsPromise, ALBUM_LIMIT);
+    if (results.length === 0 && albums.length === 0) throw new SearchError(`"${q}" için sonuç bulunamadı`);
 
-    const response: SearchResponse = { query: q, best: results[0] ?? null, results, sources };
+    const response: SearchResponse = { query: q, best: results[0] ?? null, results, albums, sources };
     if (this.cache.size >= CACHE_MAX_ENTRIES) {
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
@@ -111,7 +154,64 @@ export class SearchService {
     return response;
   }
 
+  /**
+   * Bir şarkının albümünü bulur (şarkı ekranındaki "Albümü aç" için).
+   * Tek parçalık single'lar döndürülmez — açmanın anlamı yok.
+   */
+  async findAlbum(artist: string, album: string): Promise<AlbumResult | null> {
+    const primaryArtist = splitArtists(artist)[0] ?? artist;
+    const cleanAlbum = stripTitleNoise(album);
+    const { data } = await http.get<{ data?: DeezerAlbum[] }>(`${env.DEEZER_API_BASE_URL}/search/album`, {
+      params: { q: `${primaryArtist} ${cleanAlbum}`, limit: 10 },
+    });
+
+    const best = (data.data ?? [])
+      .filter((a) => (a.nb_tracks ?? 0) > 2)
+      .map((a) => ({ a, title: titleSimilarity(cleanAlbum, a.title), artist: artistSimilarity(artist, a.artist.name) }))
+      .filter((x) => x.title >= 0.85 && x.artist >= 0.7)
+      // Aynı adlı albümlerde (deluxe vb.) en çok parçalı olan
+      .sort((x, y) => y.title + y.artist - (x.title + x.artist) || (y.a.nb_tracks ?? 0) - (x.a.nb_tracks ?? 0))[0];
+    if (!best) return null;
+
+    return rankAlbums(`${best.a.artist.name} ${best.a.title}`, [deezerAlbumToCandidate(best.a, 0)], 1)[0] ?? null;
+  }
+
   // -------------------------------------------------------------------------
+
+  private async searchAlbums(q: string): Promise<AlbumCandidate[]> {
+    const [deezer, itunes] = await Promise.allSettled([
+      http.get<{ data?: DeezerAlbum[] }>(`${env.DEEZER_API_BASE_URL}/search/album`, { params: { q, limit: 10 } }),
+      http.get<{ results?: ITunesAlbum[] }>('https://itunes.apple.com/search', {
+        params: { term: q, entity: 'album', limit: 10, country: env.APPLE_MUSIC_STOREFRONT },
+      }),
+    ]);
+
+    const candidates: AlbumCandidate[] = [];
+    if (deezer.status === 'fulfilled') {
+      (deezer.value.data.data ?? [])
+        // Single'ları ele: şarkı aramasında zaten görünüyorlar
+        .filter((a) => a.record_type !== 'single' || (a.nb_tracks ?? 0) > 3)
+        .forEach((a, i) => candidates.push(deezerAlbumToCandidate(a, i)));
+    }
+    if (itunes.status === 'fulfilled') {
+      const store = env.APPLE_MUSIC_STOREFRONT;
+      (itunes.value.data.results ?? [])
+        .filter((a) => a.collectionId && a.collectionName && !/\s-\sSingle$/i.test(a.collectionName))
+        .forEach((a, position) =>
+          candidates.push({
+            source: 'apple-music',
+            title: a.collectionName!.replace(/\s-\s(?:EP)$/i, ''),
+            artist: a.artistName ?? '',
+            url: `https://music.apple.com/${store}/album/${a.collectionId}`,
+            coverUrl: a.artworkUrl100?.replace(/\/\d+x\d+bb\./, '/3000x3000bb.') ?? null,
+            trackCount: a.trackCount ?? null,
+            releaseYear: toYear(a.releaseDate),
+            position,
+          }),
+        );
+    }
+    return candidates;
+  }
 
   private async searchDeezer(q: string): Promise<SearchCandidate[]> {
     const { data } = await http.get<{ data?: DeezerSearchTrack[]; error?: { message: string } }>(

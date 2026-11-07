@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { stringSimilarity } from 'string-similarity-js';
-import { normalizeText, scoreTrackMatch, textSimilarity } from '../matcher/similarity.js';
+import { artistSimilarity, normalizeText, scoreTrackMatch, textSimilarity, titleSimilarity } from '../matcher/similarity.js';
 import type { Platform } from '../metadata/types.js';
 import { hasUnwantedVariant, variantKeyword } from '../resolver/candidate-scorer.js';
-import type { SearchCandidate, SearchResult } from './types.js';
+import type { AlbumCandidate, AlbumResult, SearchCandidate, SearchResult } from './types.js';
 
 /** Alan seçerken platform önceliği: metadata en temiz olandan başla. */
 const METADATA_PRIORITY: Platform[] = ['spotify', 'deezer', 'apple-music', 'youtube-music'];
@@ -55,7 +55,7 @@ function sameRecording(a: SearchCandidate, b: SearchCandidate): boolean {
   return scoreTrackMatch(a, b, { durationToleranceSec: 3 }) >= 0.9;
 }
 
-function pick<T>(members: SearchCandidate[], order: Platform[], get: (c: SearchCandidate) => T | null): T | null {
+function pick<C extends { source: Platform }, T>(members: C[], order: Platform[], get: (c: C) => T | null): T | null {
   for (const platform of order) {
     for (const m of members) {
       if (m.source !== platform) continue;
@@ -104,6 +104,66 @@ function toResult(query: string, members: SearchCandidate[], activeSources: numb
     relevance: Math.round(rel * 1000) / 1000,
     score: Math.round(clamp01(0.5 * rel + 0.2 * consensus + 0.15 * position + 0.15 * popularity + adjustment) * 1000) / 1000,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Albümler
+// ---------------------------------------------------------------------------
+
+/** Albüm bölümünde gösterilmek için gereken en düşük sorgu eşleşmesi (gürültüyü keser). */
+const MIN_ALBUM_RELEVANCE = 0.6;
+/** Albüm linki: Deezer (ISRC'li parça listesi) > Apple Music */
+const ALBUM_URL_PRIORITY: Platform[] = ['deezer', 'apple-music', 'spotify', 'youtube-music'];
+
+function sameAlbum(a: AlbumCandidate, b: AlbumCandidate): boolean {
+  return titleSimilarity(a.title, b.title) >= 0.9 && artistSimilarity(a.artist, b.artist) >= 0.8;
+}
+
+export function albumRelevance(query: string, a: Pick<AlbumCandidate, 'title' | 'artist'>): number {
+  const coverage = tokenCoverage(query, `${a.artist} ${a.title}`);
+  const similarity = Math.max(textSimilarity(query, a.title), textSimilarity(query, `${a.artist} ${a.title}`));
+  return 0.65 * coverage + 0.35 * similarity;
+}
+
+/** Albüm adaylarını platformlar arası birleştirir; yalnızca sorguyla güçlü eşleşenleri döndürür. */
+export function rankAlbums(query: string, candidates: AlbumCandidate[], limit: number): AlbumResult[] {
+  const groups: AlbumCandidate[][] = [];
+  for (const c of candidates) {
+    const group = groups.find((g) => !g.some((m) => m.source === c.source) && g.some((m) => sameAlbum(m, c)));
+    if (group) group.push(c);
+    else groups.push([c]);
+  }
+
+  const activeSources = new Set(candidates.map((c) => c.source)).size;
+  return groups
+    .map((members) => {
+      const rel = Math.max(...members.map((m) => albumRelevance(query, m)));
+      const position = Math.max(...members.map((m) => 1 / (1 + m.position)));
+      const sources = [...new Set(members.map((m) => m.source))];
+      const url = ALBUM_URL_PRIORITY.flatMap((p) => members.filter((m) => m.source === p)).at(0)!.url;
+      const dated = members.filter((m) => m.releaseYear).sort((a, b) => Number(a.releaseYear) - Number(b.releaseYear));
+      const result: AlbumResult = {
+        id: createHash('sha1').update(url).digest('hex').slice(0, 12),
+        title: pick(members, METADATA_PRIORITY, (m) => m.title) ?? members[0]!.title,
+        artist: pick(members, METADATA_PRIORITY, (m) => m.artist) ?? members[0]!.artist,
+        url,
+        coverUrl: pick(members, COVER_PRIORITY, (m) => m.coverUrl),
+        trackCount: Math.max(0, ...members.map((m) => m.trackCount ?? 0)) || null,
+        releaseYear: dated[0]?.releaseYear ?? null,
+        sources,
+        score: Math.round(clamp01(0.6 * rel + 0.25 * (sources.length / Math.max(activeSources, 1)) + 0.15 * position) * 1000) / 1000,
+      };
+      return { result, rel };
+    })
+    .filter((x) => x.rel >= MIN_ALBUM_RELEVANCE)
+    // Sanatçı adı kısmen eşleşiyorsa ("daft punk" ↔ "Data Punk") farklı sanatçıdır
+    .filter((x) => {
+      const artistCovered = tokenCoverage(x.result.artist, query);
+      return artistCovered === 0 || artistCovered === 1;
+    })
+    .sort((a, b) => b.result.score - a.result.score)
+    .slice(0, limit)
+    .map((x) => x.result);
 }
 
 /**

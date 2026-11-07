@@ -1,4 +1,5 @@
 import type {
+  AlbumResult,
   Batch,
   BatchItem,
   DownloadJob,
@@ -80,6 +81,9 @@ export const api = {
     `${API_BASE}/download/${id}/file${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`,
 
   lookup: (url: string, signal?: AbortSignal) => request<LookupResponse>('/lookup', post({ url }, signal)),
+
+  albumOf: (artist: string, album: string, signal?: AbortSignal) =>
+    request<{ album: AlbumResult | null }>('/album-of', post({ artist, album }, signal)),
 
   startBatch: (name: string, format: OutputFormat, items: BatchItem[]) =>
     request<Batch>('/batch', post({ name, format, items })),

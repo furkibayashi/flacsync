@@ -1,6 +1,7 @@
+import { ListMusic } from 'lucide-react';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration, PLATFORM_LABEL } from '../lib/format';
-import type { ParseResponse, Platform } from '../types/api';
+import type { AlbumResult, ParseResponse, Platform } from '../types/api';
 import { PlatformTag } from './PlatformTag';
 
 interface Props {
@@ -8,9 +9,12 @@ interface Props {
   /** Arama sonucunda kaydın bulunduğu platformlar; link girişinde kaynak platform */
   foundOn: Platform[];
   isBestMatch: boolean;
+  /** Şarkının albümü (varsa) — "Albümü aç" ile tüm parçalar listelenir */
+  album: AlbumResult | null;
+  onOpenAlbum: (album: AlbumResult) => void;
 }
 
-export function TrackDetails({ track, foundOn, isBestMatch }: Props) {
+export function TrackDetails({ track, foundOn, isBestMatch, album, onOpenAlbum }: Props) {
   const { t } = useI18n();
   const { metadata, enrichedFrom } = track;
 
@@ -55,6 +59,30 @@ export function TrackDetails({ track, foundOn, isBestMatch }: Props) {
           </p>
         )}
       </div>
+
+      {album && (
+        <button
+          type="button"
+          onClick={() => onOpenAlbum(album)}
+          className="group flex w-full max-w-md items-center gap-3 rounded-xl bg-panel p-2 pr-4 text-left ring-1 ring-rule transition hover:ring-amber/60"
+        >
+          <span className="size-12 shrink-0 overflow-hidden rounded bg-raised">
+            {album.coverUrl && <img src={album.coverUrl} alt="" className="size-full object-cover" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] text-paper">
+              {t('track.inAlbum', { album: album.title })}
+            </span>
+            <span className="block text-sm text-fade">
+              {album.trackCount ? t('album.tracks', { count: album.trackCount }) : album.artist}
+            </span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-amber">
+            <ListMusic className="size-4" />
+            {t('album.open')}
+          </span>
+        </button>
+      )}
     </div>
   );
 }

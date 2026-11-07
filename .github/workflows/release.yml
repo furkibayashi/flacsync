@@ -1,0 +1,88 @@
+name: Release
+
+# "v1.2.3" biçiminde bir tag gönderilince Windows kurulumunu ve portable exe'yi
+# GitHub Actions'ta derler, SHA-256 özetlerini üretir ve GitHub Release'e yükler.
+#
+# Kod imzalama (SmartScreen "bilinmeyen yayımcı" uyarısını kaldırmak için):
+# SignPath Foundation onayından sonra depo ayarlarına şunları ekleyin; adım kendiliğinden devreye girer:
+#   Secrets:   SIGNPATH_API_TOKEN
+#   Variables: SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG
+# Ayrıntılar: CODE_SIGNING.md
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download binaries (yt-dlp, ffmpeg, esbuild, Electron)
+        run: npm run setup:binaries
+
+      - name: Test
+        run: npm test
+
+      - name: Build installer and portable exe
+        run: npm run desktop:dist
+
+      - name: Collect release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-release | Out-Null
+          Copy-Item desktop/release/*.exe dist-release/
+
+      - name: Upload unsigned build
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: flacsync-windows
+          path: dist-release/*.exe
+          if-no-files-found: error
+
+      - name: Sign with SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist-release
+
+      - name: SHA-256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist-release -Filter *.exe | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content -Encoding ascii dist-release/SHA256SUMS.txt
+          Get-Content dist-release/SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = "docs/release-notes/$tag.md"
+          $files = Get-ChildItem dist-release | ForEach-Object { $_.FullName }
+          if (Test-Path $notes) {
+            gh release create $tag @files --title "FlacSync $($tag.TrimStart('v'))" --notes-file $notes
+          } else {
+            gh release create $tag @files --title "FlacSync $($tag.TrimStart('v'))" --generate-notes
+          }

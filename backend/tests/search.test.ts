@@ -1,6 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { rankCandidates, relevance, tokenCoverage } from '../src/services/search/ranking.js';
-import type { SearchCandidate } from '../src/services/search/types.js';
+import { rankAlbums, rankCandidates, relevance, tokenCoverage } from '../src/services/search/ranking.js';
+import type { AlbumCandidate, SearchCandidate } from '../src/services/search/types.js';
+
+const album = (over: Partial<AlbumCandidate> & Pick<AlbumCandidate, 'source' | 'title' | 'artist'>): AlbumCandidate => ({
+  url: `https://example/${over.source}/album/${encodeURIComponent(over.title)}`,
+  coverUrl: null,
+  trackCount: 14,
+  releaseYear: null,
+  position: 0,
+  ...over,
+});
+
+describe('rankAlbums', () => {
+  const albums: AlbumCandidate[] = [
+    album({ source: 'deezer', title: 'Discovery', artist: 'Daft Punk', position: 0 }),
+    album({ source: 'deezer', title: 'Discovery', artist: 'Data Punk', position: 1, trackCount: 16 }),
+    album({ source: 'apple-music', title: 'Discovery', artist: 'Daft Punk', releaseYear: '2001', position: 0 }),
+    album({ source: 'apple-music', title: 'Random Access Memories', artist: 'Daft Punk', position: 1 }),
+  ];
+
+  it('aynı albümü platformlar arası birleştirir, Deezer linkini seçer', () => {
+    const [first] = rankAlbums('daft punk discovery', albums, 4);
+    expect(first).toMatchObject({ title: 'Discovery', artist: 'Daft Punk', releaseYear: '2001' });
+    expect(first!.sources.sort()).toEqual(['apple-music', 'deezer']);
+    expect(first!.url).toContain('/deezer/');
+  });
+
+  it('benzer adlı başka sanatçının aynı adlı albümünü göstermez', () => {
+    const list = rankAlbums('daft punk discovery', albums, 4).map((a) => a.artist);
+    expect(list).not.toContain('Data Punk');
+  });
+
+  it('yalnızca albüm adı aranınca o adlı albümler gelir', () => {
+    expect(rankAlbums('discovery', albums, 4).map((a) => a.title)).toContain('Discovery');
+  });
+
+  it('sanatçı adı aranınca sanatçının albümleri gelir', () => {
+    const titles = rankAlbums('daft punk', albums, 4).map((a) => `${a.artist} - ${a.title}`);
+    expect(titles).toContain('Daft Punk - Random Access Memories');
+    expect(titles).not.toContain('Data Punk - Discovery');
+  });
+
+  it('şarkı adı aramasında alakasız albüm göstermez', () => {
+    const list = rankAlbums('tarkan şımarık', [album({ source: 'deezer', title: 'Ölürüm Sana', artist: 'Tarkan' })], 4);
+    expect(list).toHaveLength(0);
+  });
+});
 
 const base = {
   album: null,

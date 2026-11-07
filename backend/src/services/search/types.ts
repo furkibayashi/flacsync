@@ -42,11 +42,38 @@ export interface SearchResult {
   relevance: number;
 }
 
+/** Tek bir platformun albüm arama sonucu. */
+export interface AlbumCandidate {
+  source: Platform;
+  title: string;
+  artist: string;
+  /** Albüm görünümünü açan link (Deezer / Apple Music albüm linki) */
+  url: string;
+  coverUrl: string | null;
+  trackCount: number | null;
+  releaseYear: string | null;
+  position: number;
+}
+
+export interface AlbumResult {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
+  coverUrl: string | null;
+  trackCount: number | null;
+  releaseYear: string | null;
+  sources: Platform[];
+  score: number;
+}
+
 export type SourceStatus = 'ok' | 'empty' | 'error' | 'skipped';
 
 export interface SearchResponse {
   query: string;
   best: SearchResult | null;
   results: SearchResult[];
+  /** Sorguyla güçlü eşleşen albümler (ör. "daft punk discovery") */
+  albums: AlbumResult[];
   sources: Record<Platform, SourceStatus>;
 }

@@ -5,7 +5,7 @@ const tr = {
 
   'hero.title': 'Bir şarkı adı yaz ya da link yapıştır.',
   'hero.subtitle':
-    'Şarkıyı platformlarda arar, en doğru kaydı seçer ve kapağı, etiketleriyle MP3 ya da FLAC olarak kaydeder. Albüm ve çalma listesi linklerini toplu indirir.',
+    'Şarkıyı platformlarda arar, en doğru kaydı seçer ve kapağı, etiketleriyle MP3 ya da FLAC olarak kaydeder. Albümün tamamını indirmek için albüm adını ara ya da albüm linki yapıştır.',
 
   'collection.album': 'Albüm',
   'collection.playlist': 'Çalma listesi',
@@ -90,6 +90,12 @@ const tr = {
   'done.noCover': 'kapaksız',
 
   'results.more': 'Başka sonuçlar',
+  'results.albums': 'Albümler',
+  'results.albumsHint': 'Albümü açıp tüm parçaları ya da seçtiklerini indirebilirsin.',
+  'album.tracks': '{count} parça',
+  'album.open': 'Albümü aç',
+  'album.openAria': '{artist} – {title} albümünü aç',
+  'track.inAlbum': '“{album}” albümünden',
   'results.choose': '{title}, {artist} seç',
 
   'footer.note': 'Yalnızca dinleme hakkına sahip olduğun içerikler için kullan.',
@@ -120,7 +126,7 @@ const en: Record<TranslationKey, string> = {
 
   'hero.title': 'Type a song name or paste a link.',
   'hero.subtitle':
-    'Searches the platforms for the song, picks the right recording, and saves it as MP3 or FLAC with cover art and tags. Album and playlist links download in one go.',
+    'Searches the platforms for the song, picks the right recording, and saves it as MP3 or FLAC with cover art and tags. To download a whole album, search for its name or paste an album link.',
 
   'collection.album': 'Album',
   'collection.playlist': 'Playlist',
@@ -205,6 +211,12 @@ const en: Record<TranslationKey, string> = {
   'done.noCover': 'no cover',
 
   'results.more': 'Other results',
+  'results.albums': 'Albums',
+  'results.albumsHint': 'Open an album to download every track or just the ones you pick.',
+  'album.tracks': '{count} tracks',
+  'album.open': 'Open album',
+  'album.openAria': 'Open the album {title} by {artist}',
+  'track.inAlbum': 'From the album “{album}”',
   'results.choose': 'Choose {title} by {artist}',
 
   'footer.note': 'Use only for content you have the right to listen to.',

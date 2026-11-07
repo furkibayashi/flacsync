@@ -53,6 +53,10 @@ const batchBody = z.object({
     .min(1, 'En az bir parça seçin')
     .max(MAX_COLLECTION_TRACKS),
 });
+const albumOfBody = z.object({
+  artist: z.string().trim().min(1).max(500),
+  album: z.string().trim().min(1).max(500),
+});
 const searchBody = z.object({
   query: z.string().trim().min(2, 'En az 2 karakter girin').max(200),
   limit: z.number().int().min(1).max(20).default(8),
@@ -93,6 +97,12 @@ apiRouter.get('/health', (_req, res) => {
 apiRouter.post('/search', async (req, res) => {
   const { query, limit } = searchBody.parse(req.body);
   res.json(await searchService.search(query, limit));
+});
+
+/** Şarkının albümü (şarkı ekranındaki "Albümü aç" için); bulunamazsa { album: null } */
+apiRouter.post('/album-of', async (req, res) => {
+  const { artist, album } = albumOfBody.parse(req.body);
+  res.json({ album: await searchService.findAlbum(artist, album) });
 });
 
 /** Link → tek şarkıysa metadata, albüm / çalma listesiyse parça listesi */

@@ -15,6 +15,8 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
   geri plana atılır.
 - **Link desteği** — Spotify, Apple Music, Deezer, YouTube Music şarkı, albüm ve çalma listesi
   linkleri; kısa linkler (`spotify.link`, `link.deezer.com`) dahil.
+- **Albümler** — Albüm ya da sanatçı adını ara (ör. "daft punk discovery") veya bir şarkıdayken
+  **Albümü aç**'a bas; albümün tüm parçaları listelenir.
 - **Toplu indirme** — Albümün tamamını, seçtiğin parçaları ya da tek bir parçayı indir. Albüm
   dosyalarına parça numarası (`03/14`), albüm sanatçısı, yıl ve kapak ortak yazılır; masaüstünde
   `İndirilenler\FlacSync\Sanatçı - Albüm\` klasörüne kaydedilir.
@@ -44,8 +46,18 @@ yalnızca şarkı bilgisi (metadata) için kullanır.
   Ayarlar → Uygulamalar'dan kaldırılabilir). Yönetici izni gerekmez.
 - **`FlacSync-x.y.z.exe`** — Kurulumsuz (portable) sürüm; çift tıkla çalışır.
 
-Uygulama imzasız olduğu için Windows SmartScreen "Bilinmeyen yayımcı" uyarısı gösterebilir:
-**Ek bilgi → Yine de çalıştır**.
+### "Windows bilgisayarınızı korudu" uyarısı
+
+Dosyalar henüz **kod imzalı değil**; Windows SmartScreen bu yüzden "Bilinmeyen yayımcı" der.
+Uyarıyı geçmek için **Ek bilgi → Yine de çalıştır**. Dosyanın değişmediğini sürümdeki
+`SHA256SUMS.txt` ile doğrulayabilirsin:
+
+```powershell
+Get-FileHash .\FlacSync-Setup-1.1.0.exe -Algorithm SHA256
+```
+
+Sürüm dosyaları yalnızca bu depodan, GitHub Actions üzerinde derlenir. İmzalama planı ve politikası:
+[CODE_SIGNING.md](CODE_SIGNING.md).
 
 ### Ayarlar ve API anahtarları (isteğe bağlı)
 

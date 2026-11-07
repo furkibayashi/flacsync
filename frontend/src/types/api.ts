@@ -115,10 +115,23 @@ export interface SearchResult {
   relevance: number;
 }
 
+export interface AlbumResult {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
+  coverUrl: string | null;
+  trackCount: number | null;
+  releaseYear: string | null;
+  sources: Platform[];
+  score: number;
+}
+
 export interface SearchResponse {
   query: string;
   best: SearchResult | null;
   results: SearchResult[];
+  albums: AlbumResult[];
   sources: Record<Platform, 'ok' | 'empty' | 'error' | 'skipped'>;
 }
 

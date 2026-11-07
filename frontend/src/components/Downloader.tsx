@@ -5,7 +5,8 @@ import { isTerminal, useDownloadJob } from '../hooks/useDownloadJob';
 import { useI18n } from '../i18n/I18nProvider';
 import { detectPlatform, looksLikeUrl } from '../lib/format';
 import { api, isAbort, toUiError, type UiError } from '../services/api';
-import type { Collection, OutputFormat, ParseResponse, SearchResponse, SearchResult } from '../types/api';
+import type { AlbumResult, Collection, OutputFormat, ParseResponse, SearchResponse, SearchResult } from '../types/api';
+import { AlbumResults } from './AlbumResults';
 import { CollectionView } from './CollectionView';
 import { DownloadControls } from './DownloadControls';
 import { ResultsList } from './ResultsList';
@@ -14,7 +15,23 @@ import { Sleeve } from './Sleeve';
 import { SourceLine, type SourceState } from './SourceLine';
 import { TrackDetails } from './TrackDetails';
 
-const EXAMPLES = ['tarkan şımarık', 'daft punk one more time', 'queen bohemian rhapsody'];
+const EXAMPLES = ['tarkan şımarık', 'queen bohemian rhapsody', 'daft punk discovery'];
+
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/** Sorgu sanatçı + albüm adını içeriyor ve en iyi şarkının adını içermiyorsa kullanıcı albüm arıyordur. */
+function targetsAlbum(query: string, album: AlbumResult, best: SearchResult | null): boolean {
+  const q = ` ${norm(query)} `;
+  const has = (s: string) => Boolean(norm(s)) && q.includes(` ${norm(s)} `);
+  return has(album.title) && has(album.artist) && !(best && has(best.title) && norm(best.title) !== norm(album.title));
+}
 
 interface Props {
   /** Kapak rengini sayfa arka planına iletmek için */
@@ -35,6 +52,7 @@ export function Downloader({ onArtColor }: Props) {
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [track, setTrack] = useState<ParseResponse | null>(null);
   const [collection, setCollection] = useState<Collection | null>(null);
+  const [trackAlbum, setTrackAlbum] = useState<AlbumResult | null>(null);
   const [trackUrl, setTrackUrl] = useState<string | null>(null);
   const [source, setSource] = useState<SourceState>({ status: 'idle' });
   const [format, setFormat] = useState<OutputFormat>('mp3');
@@ -82,6 +100,7 @@ export function Downloader({ onArtColor }: Props) {
     setError(null);
     setTrack(null);
     setCollection(null);
+    setTrackAlbum(null);
     setTrackUrl(url);
     setSource({ status: 'idle' });
 
@@ -98,6 +117,14 @@ export function Downloader({ onArtColor }: Props) {
       setTrack(parsed);
       setBusy(null);
       setSource({ status: 'loading' });
+
+      // Şarkının albümü: "Albümü aç" ile tüm parçaları listelemek için (bulunamazsa gösterilmez)
+      if (parsed.metadata.album) {
+        api
+          .albumOf(parsed.metadata.artist, parsed.metadata.album, controller.signal)
+          .then((r) => !controller.signal.aborted && setTrackAlbum(r.album))
+          .catch(() => undefined);
+      }
 
       // Kaynak eşleştirme arka planda; kart beklemeden görünür
       api
@@ -133,7 +160,11 @@ export function Downloader({ onArtColor }: Props) {
       const res = await api.search(query, controller.signal);
       if (controller.signal.aborted) return;
       setSearch(res);
-      if (res.best) {
+      const topAlbum = res.albums[0];
+      if (topAlbum && targetsAlbum(query, topAlbum, res.best)) {
+        // "daft punk discovery" gibi albüm aramaları doğrudan parça listesini açar
+        void loadTrack(topAlbum.url);
+      } else if (res.best) {
         setSelected(res.best);
         void loadTrack(res.best.url);
       } else {
@@ -170,6 +201,12 @@ export function Downloader({ onArtColor }: Props) {
     trackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function openAlbum(album: AlbumResult) {
+    setSelected(null);
+    void loadTrack(album.url);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   async function paste() {
     try {
       const text = (await navigator.clipboard.readText()).trim();
@@ -198,6 +235,7 @@ export function Downloader({ onArtColor }: Props) {
 
   const idle = !busy && !track && !collection && !search && !error;
   const others = search?.results ?? [];
+  const albums = search?.albums ?? [];
   const foundOn = selected?.sources ?? (track ? [track.platform] : []);
 
   return (
@@ -276,7 +314,13 @@ export function Downloader({ onArtColor }: Props) {
           </div>
 
           <div className="min-w-0 space-y-8">
-            <TrackDetails track={track} foundOn={foundOn} isBestMatch={Boolean(selected && selected.id === search?.best?.id)} />
+            <TrackDetails
+              track={track}
+              foundOn={foundOn}
+              isBestMatch={Boolean(selected && selected.id === search?.best?.id)}
+              album={trackAlbum}
+              onOpenAlbum={openAlbum}
+            />
             <div className="space-y-6 border-t border-rule pt-6">
               <SourceLine source={source} />
               <DownloadControls
@@ -294,6 +338,8 @@ export function Downloader({ onArtColor }: Props) {
           </div>
         </section>
       )}
+
+      {albums.length > 0 && <AlbumResults albums={albums} onOpen={openAlbum} />}
 
       {others.length > 1 && <ResultsList results={others} selectedId={selected?.id ?? null} onSelect={choose} />}
     </div>
