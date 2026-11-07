@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { stringSimilarity } from 'string-similarity-js';
-import { artistSimilarity, normalizeText, scoreTrackMatch, textSimilarity, titleSimilarity } from '../matcher/similarity.js';
+import { artistSimilarity, normalizeText, scoreTrackMatch, textSimilarity, titleSimilarity, versionTag } from '../matcher/similarity.js';
 import type { Platform } from '../metadata/types.js';
 import { hasUnwantedVariant, variantKeyword } from '../resolver/candidate-scorer.js';
 import type { AlbumCandidate, AlbumResult, SearchCandidate, SearchResult } from './types.js';
@@ -15,6 +15,14 @@ const URL_PRIORITY: Platform[] = ['deezer', 'spotify', 'apple-music', 'youtube-m
 const MIN_RELEVANCE = 0.35;
 const VARIANT_PENALTY = 0.25;
 const VARIANT_BONUS = 0.1;
+/** "(Mazaruni Dub One)", " - Radio Edit" gibi sorguda geçmeyen sürüm ekleri */
+const VERSION_PENALTY = 0.15;
+
+function unrequestedVersion(query: string, title: string): boolean {
+  const tag = versionTag(title);
+  if (!tag) return false;
+  return tokenCoverage(tag, query) === 0;
+}
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const tokenize =(s: string) => normalizeText(s).split(' ').filter(Boolean);
@@ -78,6 +86,7 @@ function toResult(query: string, members: SearchCandidate[], activeSources: numb
   const queryVariant = variantKeyword(query);
   let adjustment = 0;
   if (hasUnwantedVariant(query, title)) adjustment -= VARIANT_PENALTY;
+  else if (unrequestedVersion(query, title)) adjustment -= VERSION_PENALTY;
   else if (queryVariant && titleVariant === queryVariant) adjustment += VARIANT_BONUS;
   else if (queryVariant && !titleVariant) adjustment -= VARIANT_BONUS;
 

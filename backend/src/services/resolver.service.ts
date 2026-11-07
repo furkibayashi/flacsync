@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
-import { ytDlpJson, type YtDlpFlatEntry, type YtDlpVideoInfo } from '../utils/ytdlp.js';
+import { trimInfoForDownload, ytDlpJson, type YtDlpFlatEntry, type YtDlpVideoInfo } from '../utils/ytdlp.js';
 import { normalizeText, splitArtists, stripTitleNoise } from './matcher/similarity.js';
 import { DeezerProvider } from './metadata/providers/deezer.provider.js';
 import { youTubeInfoToMetadata } from './metadata/providers/youtube-music.provider.js';
@@ -11,6 +11,12 @@ import { ResolverError, type MatchStrategy, type ResolvedSource } from './resolv
 
 export { ResolverError } from './resolver/types.js';
 export type { AudioFormat, MatchStrategy, ResolvedSource } from './resolver/types.js';
+
+/**
+ * Adaylar dalga dalga incelenir: önce en olası ilk ikisi; yeterli eşleşme çıkarsa
+ * diğerleri için yt-dlp hiç çalıştırılmaz (her çağrı ~2,5 sn).
+ */
+const FIRST_WAVE = 2;
 
 /** Arama sonucundaki başlık bu skorun altındaysa tam bilgi sorgusu yapılmaz. */
 const PRE_SCORE_MIN = 0.6;
@@ -90,6 +96,7 @@ export class ResolverService {
         album: best.metadata.album,
       },
       previewUrl: await previewPromise,
+      downloadInfo: trimInfoForDownload(best.info),
     };
 
     this.remember(key, result, expiry);
@@ -145,17 +152,20 @@ export class ResolverService {
 
       shortlist.forEach((c) => tried.add(c.id));
 
-      // 2) Pahalı adım: adayların tam bilgisi (yt-dlp kuyruğu eşzamanlılığı sınırlar)
-      const scored = (
-        await Promise.all(shortlist.map((c) => this.inspect(c.id, meta, step.strategy, toleranceSec)))
-      ).filter((c): c is Candidate => c !== null);
+      // 2) Pahalı adım: adayların tam bilgisi, dalgalar halinde (yt-dlp kuyruğu eşzamanlılığı sınırlar)
+      const waves = [shortlist.slice(0, FIRST_WAVE), shortlist.slice(FIRST_WAVE)].filter((w) => w.length > 0);
+      for (const wave of waves) {
+        const scored = (
+          await Promise.all(wave.map((c) => this.inspect(c.id, meta, step.strategy, toleranceSec)))
+        ).filter((c): c is Candidate => c !== null);
 
-      for (const c of scored) if (!closest || c.score > closest.score) closest = c;
+        for (const c of scored) if (!closest || c.score > closest.score) closest = c;
 
-      const winner = scored
-        .filter((c) => c.score >= env.RESOLVER_MIN_SCORE)
-        .sort((a, b) => b.rank - a.rank)[0];
-      if (winner) return winner;
+        const winner = scored
+          .filter((c) => c.score >= env.RESOLVER_MIN_SCORE)
+          .sort((a, b) => b.rank - a.rank)[0];
+        if (winner) return winner;
+      }
     }
 
     if (searchFailures === plan.length) {

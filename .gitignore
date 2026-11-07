@@ -12,3 +12,6 @@ backend/secrets/
 desktop/dist/
 desktop/release/
 desktop/build/
+vendor/
+backend/storage/data/
+backend/storage/bench-*/

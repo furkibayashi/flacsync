@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "productName": "FlacSync",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "FlacSync masaüstü uygulaması",
   "author": "FlacSync contributors",
@@ -33,8 +33,8 @@
         "to": "frontend"
       },
       {
-        "from": "../node_modules/yt-dlp-exec/bin/yt-dlp.exe",
-        "to": "bin/yt-dlp.exe"
+        "from": "../vendor/yt-dlp",
+        "to": "bin/yt-dlp"
       },
       {
         "from": "../node_modules/ffmpeg-static/ffmpeg.exe",
@@ -99,8 +99,10 @@
     }
   },
   "devDependencies": {
+    "@types/yauzl": "^3.4.0",
     "electron": "45.2.3",
     "electron-builder": "^26.18.0",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "yauzl": "^3.4.0"
   }
 }

@@ -24,6 +24,12 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
   Music'te aynı kayıt bulunur; cover, live, sped-up vb. sürümler elenir.
 - **Etiketler** — MP3: ID3v2 (başlık, sanatçı, albüm, yıl, ISRC, parça no, kapak).
   FLAC: Vorbis comment + gömülü kapak.
+- **Ana sayfa ve geçmiş** — İstatistikler, şu an inenler ve uygulama kapanınca da duran
+  "Son indirilenler" listesi.
+- **İndirme sırası** — Tüm indirmeler tek yerde: albüm / seçime göre gruplu, iptal, yeniden dene,
+  süre ve codec bilgisi. Arama sonuçlarından tek tıkla ya da çoklu seçimle sıraya ekle.
+- **Hızlı** — Aynı anda 4 indirme; eşleştirmede alınan bilgi indirmede yeniden kullanılır
+  (1.1.0'a göre tek şarkı ~%45, albüm ~2 kat daha hızlı).
 - **Türkçe / English** arayüz.
 
 ![Albüm indirme](docs/screenshot-album.png)

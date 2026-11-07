@@ -11,7 +11,8 @@ import type { AlbumCandidate, AlbumResult, SearchCandidate, SearchResponse, Sour
 
 export type { AlbumResult, SearchCandidate, SearchResponse, SearchResult } from './search/types.js';
 
-const PER_SOURCE_LIMIT = 15;
+/** Kaynak başına sonuç: "daha fazla göster" için istenen limitle büyür */
+const perSourceLimit = (limit: number) => Math.min(30, Math.max(15, limit + 5));
 const CACHE_TTL_MS = 10 * 60_000;
 const CACHE_MAX_ENTRIES = 200;
 
@@ -112,10 +113,10 @@ export class SearchService {
     });
 
     const tasks: Array<[Platform, Promise<SearchCandidate[]>]> = [
-      ['deezer', this.searchDeezer(q)],
-      ['apple-music', this.searchITunes(q)],
+      ['deezer', this.searchDeezer(q, perSourceLimit(limit))],
+      ['apple-music', this.searchITunes(q, perSourceLimit(limit))],
     ];
-    if (this.spotify.hasCredentials) tasks.push(['spotify', this.searchSpotify(q)]);
+    if (this.spotify.hasCredentials) tasks.push(['spotify', this.searchSpotify(q, perSourceLimit(limit))]);
 
     const settled = await Promise.allSettled(tasks.map(([, p]) => p));
     let candidates: SearchCandidate[] = [];
@@ -213,10 +214,10 @@ export class SearchService {
     return candidates;
   }
 
-  private async searchDeezer(q: string): Promise<SearchCandidate[]> {
+  private async searchDeezer(q: string, perSource: number): Promise<SearchCandidate[]> {
     const { data } = await http.get<{ data?: DeezerSearchTrack[]; error?: { message: string } }>(
       `${env.DEEZER_API_BASE_URL}/search`,
-      { params: { q, limit: PER_SOURCE_LIMIT } },
+      { params: { q, limit: perSource } },
     );
     if (data.error) throw new Error(`Deezer: ${data.error.message}`);
     return (data.data ?? []).map((t, position) => ({
@@ -236,9 +237,9 @@ export class SearchService {
     }));
   }
 
-  private async searchITunes(q: string): Promise<SearchCandidate[]> {
+  private async searchITunes(q: string, perSource: number): Promise<SearchCandidate[]> {
     const { data } = await http.get<{ results?: ITunesSearchResult[] }>('https://itunes.apple.com/search', {
-      params: { term: q, entity: 'song', limit: PER_SOURCE_LIMIT, country: env.APPLE_MUSIC_STOREFRONT },
+      params: { term: q, entity: 'song', limit: perSource, country: env.APPLE_MUSIC_STOREFRONT },
     });
     return (data.results ?? [])
       .filter((r) => r.kind === 'song' && r.trackName && r.artistName)
@@ -261,8 +262,8 @@ export class SearchService {
       }));
   }
 
-  private async searchSpotify(q: string): Promise<SearchCandidate[]> {
-    const items = await this.spotify.searchTracks(q, PER_SOURCE_LIMIT);
+  private async searchSpotify(q: string, perSource: number): Promise<SearchCandidate[]> {
+    const items = await this.spotify.searchTracks(q, perSource);
     return items.map((t, position) => ({
       source: 'spotify' as const,
       sourceId: t.id,

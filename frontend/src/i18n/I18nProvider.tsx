@@ -25,7 +25,9 @@ function initialLang(): Lang {
   return navigator.language.toLowerCase().startsWith('tr') ? 'tr' : 'en';
 }
 
-function format(template: string, vars?: Vars): string {
+function format(template: string | undefined, vars?: Vars): string {
+  // Eksik anahtar arayüzü çökertmesin (geliştirmede sıcak yükleme sırasında olabilir)
+  if (template === undefined) return '';
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
 }

@@ -22,7 +22,7 @@ const NOISE_PATTERNS: RegExp[] = [
  * Gürültü atıldıktan sonra kalan versiyon ekleri: "(Live)", "(Remix)",
  * "(Pianoforte)", " - Radio Edit" ... Farklı ekler = farklı kayıt.
  */
-function versionTag(value: string): string {
+export function versionTag(value: string): string {
   const stripped = stripTitleNoise(value);
   const tags = [
     ...[...stripped.matchAll(/[([]([^)\]]+)[)\]]/g)].map((m) => m[1] ?? ''),

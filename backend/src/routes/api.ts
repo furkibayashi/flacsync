@@ -5,6 +5,7 @@ import { MAX_COLLECTION_TRACKS } from '../services/metadata/normalize.js';
 import { jobsService, toPublicSource, type PublicJob } from '../services/jobs.service.js';
 import { MetadataError, metadataService } from '../services/metadata.service.js';
 import { finalizeMetadata } from '../services/metadata/normalize.js';
+import { historyService } from '../services/history.service.js';
 import { resolverService } from '../services/resolver.service.js';
 import { searchService } from '../services/search.service.js';
 import { HttpError } from '../utils/http-error.js';
@@ -48,18 +49,25 @@ const extrasSchema = z
 const batchBody = z.object({
   name: z.string().trim().min(1).max(200),
   format: formatField,
+  /** false: seçilmiş tek tek şarkılar — masaüstünde alt klasör açılmaz */
+  useFolder: z.boolean().default(true),
   items: z
     .array(z.object({ url: urlField, overrides: overridesSchema.optional(), extras: extrasSchema.optional() }))
     .min(1, 'En az bir parça seçin')
     .max(MAX_COLLECTION_TRACKS),
 });
+const historyQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+const historyParams = z.object({ id: z.string().min(1).max(64) });
 const albumOfBody = z.object({
   artist: z.string().trim().min(1).max(500),
   album: z.string().trim().min(1).max(500),
 });
 const searchBody = z.object({
   query: z.string().trim().min(2, 'En az 2 karakter girin').max(200),
-  limit: z.number().int().min(1).max(20).default(8),
+  limit: z.number().int().min(1).max(30).default(8),
 });
 
 function assertSupported(url: string): void {
@@ -217,10 +225,71 @@ apiRouter.get('/download', async (req, res) => {
   const { id } = jobsService.create(url, format);
   const job = await jobsService.waitFor(id);
   if (!job) throw new HttpError(500, 'JOB_LOST', 'İndirme işi kayboldu');
-  if (job.status === 'failed') {
-    throw new HttpError(job.error?.status ?? 502, job.error?.code ?? 'DOWNLOAD_FAILED', job.error?.message ?? 'İndirme başarısız');
+  if (job.status !== 'completed') {
+    throw new HttpError(job.error?.status ?? 502, job.error?.code ?? 'DOWNLOAD_FAILED', job.error?.message ?? 'İndirme tamamlanamadı');
   }
   sendFile(res, id);
+});
+
+// --- Sıra (tüm indirmeler) ---------------------------------------------------
+
+apiRouter.get('/queue', (_req, res) => {
+  res.json(jobsService.snapshot());
+});
+
+/** Sıra akışı: önce tam durum ("snapshot"), sonra her iş güncellemesi ("job") ve kaldırılanlar ("removed") */
+apiRouter.get('/queue/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const offJobs = jobsService.subscribeAll((job, batch) => write('job', { job, batch }));
+  const offRemoved = jobsService.onRemoved((id) => write('removed', { id }));
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    offJobs();
+    offRemoved();
+  });
+  write('snapshot', jobsService.snapshot());
+});
+
+apiRouter.delete('/queue/finished', async (_req, res) => {
+  res.json({ removed: await jobsService.clearFinished() });
+});
+
+apiRouter.post('/download/:id/cancel', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  requireJob(id);
+  res.json({ cancelled: jobsService.cancel(id) });
+});
+
+apiRouter.post('/download/:id/retry', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  requireJob(id);
+  const job = jobsService.retry(id);
+  if (!job) throw new HttpError(409, 'NOT_RETRYABLE', 'Yalnızca başarısız ya da iptal edilmiş indirmeler yeniden denenebilir');
+  res.status(202).json(job);
+});
+
+// --- İndirme geçmişi (ana sayfa) --------------------------------------------
+
+apiRouter.get('/history', (req, res) => {
+  const { limit, offset } = historyQuery.parse(req.query);
+  res.json({ items: historyService.list(limit, offset), total: historyService.size, stats: historyService.stats() });
+});
+
+apiRouter.delete('/history/:id', (req, res) => {
+  const { id } = historyParams.parse(req.params);
+  res.json({ removed: historyService.remove(id) });
+});
+
+apiRouter.delete('/history', (_req, res) => {
+  historyService.clear();
+  res.json({ cleared: true });
 });
 
 /** İşin anlık durumu */

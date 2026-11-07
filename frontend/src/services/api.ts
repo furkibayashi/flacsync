@@ -3,6 +3,8 @@ import type {
   Batch,
   BatchItem,
   DownloadJob,
+  HistoryResponse,
+  QueueSnapshot,
   LookupResponse,
   OutputFormat,
   ParseResponse,
@@ -64,8 +66,6 @@ const post = (body: unknown, signal?: AbortSignal) =>
   ({ method: 'POST', body: JSON.stringify(body), signal }) satisfies RequestInit;
 
 export const api = {
-  search: (query: string, signal?: AbortSignal) => request<SearchResponse>('/search', post({ query }, signal)),
-
   parse: (url: string, signal?: AbortSignal) => request<ParseResponse>('/parse', post({ url }, signal)),
 
   resolve: (url: string, signal?: AbortSignal) => request<ResolveResponse>('/resolve', post({ url }, signal)),
@@ -85,8 +85,25 @@ export const api = {
   albumOf: (artist: string, album: string, signal?: AbortSignal) =>
     request<{ album: AlbumResult | null }>('/album-of', post({ artist, album }, signal)),
 
-  startBatch: (name: string, format: OutputFormat, items: BatchItem[]) =>
-    request<Batch>('/batch', post({ name, format, items })),
+  startBatch: (name: string, format: OutputFormat, items: BatchItem[], useFolder = true) =>
+    request<Batch>('/batch', post({ name, format, items, useFolder })),
+
+  search: (query: string, signal?: AbortSignal, limit = 8) =>
+    request<SearchResponse>('/search', post({ query, limit }, signal)),
+
+  queue: () => request<QueueSnapshot>('/queue'),
+
+  queueEventsUrl: () => `${API_BASE}/queue/events`,
+
+  cancelJob: (id: string) => request<{ cancelled: boolean }>(`/download/${id}/cancel`, post({})),
+
+  retryJob: (id: string) => request<DownloadJob>(`/download/${id}/retry`, post({})),
+
+  clearFinished: () => request<{ removed: number }>('/queue/finished', { method: 'DELETE' }),
+
+  history: (limit = 50, offset = 0) => request<HistoryResponse>(`/history?limit=${limit}&offset=${offset}`),
+
+  removeHistory: (id: string) => request<{ removed: boolean }>(`/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   getBatch: (id: string) => request<{ batch: Batch; jobs: DownloadJob[] }>(`/batch/${id}`),
 

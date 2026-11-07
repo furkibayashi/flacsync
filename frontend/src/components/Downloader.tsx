@@ -1,11 +1,14 @@
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import type { SearchRequest } from '../App';
 import { useCoverColor } from '../hooks/useCoverColor';
-import { isTerminal, useDownloadJob } from '../hooks/useDownloadJob';
+import { usePreferredFormat } from '../hooks/usePreferredFormat';
+import { isTerminal, useQueue } from '../state/QueueProvider';
+import type { Route } from '../state/router';
 import { useI18n } from '../i18n/I18nProvider';
 import { detectPlatform, looksLikeUrl } from '../lib/format';
 import { api, isAbort, toUiError, type UiError } from '../services/api';
-import type { AlbumResult, Collection, OutputFormat, ParseResponse, SearchResponse, SearchResult } from '../types/api';
+import type { AlbumResult, Collection, ParseResponse, SearchResponse, SearchResult } from '../types/api';
 import { AlbumResults } from './AlbumResults';
 import { CollectionView } from './CollectionView';
 import { DownloadControls } from './DownloadControls';
@@ -33,17 +36,24 @@ function targetsAlbum(query: string, album: AlbumResult, best: SearchResult | nu
   return has(album.title) && has(album.artist) && !(best && has(best.title) && norm(best.title) !== norm(album.title));
 }
 
+/** "Daha fazla göster" ile istenen sonuç sayısı */
+const MORE_LIMIT = 25;
+
 interface Props {
   /** Kapak rengini sayfa arka planına iletmek için */
   onArtColor: (rgb: string | null) => void;
+  /** Ana sayfadan gelen arama */
+  request: SearchRequest | null;
+  onNavigate: (route: Route) => void;
 }
 
 /**
  * Şarkı adı → tüm platformlarda ara → en iyi sonucu otomatik seç
  * ya da link → doğrudan aç. Ardından kaynak eşleşmesi ve indirme.
  */
-export function Downloader({ onArtColor }: Props) {
+export function Downloader({ onArtColor, request, onNavigate }: Props) {
   const { t, tError } = useI18n();
+  const queue = useQueue();
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState<'search' | 'track' | null>(null);
@@ -55,14 +65,20 @@ export function Downloader({ onArtColor }: Props) {
   const [trackAlbum, setTrackAlbum] = useState<AlbumResult | null>(null);
   const [trackUrl, setTrackUrl] = useState<string | null>(null);
   const [source, setSource] = useState<SourceState>({ status: 'idle' });
-  const [format, setFormat] = useState<OutputFormat>('mp3');
+  const [format, setFormat] = usePreferredFormat();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const { job, error: jobError, start, reset: resetJob, isRunning } = useDownloadJob();
+  // Tek şarkı indirmesi global sıradan izlenir
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = jobId ? queue.jobs[jobId] ?? null : null;
+  const isRunning = Boolean(job && !isTerminal(job));
+  const resetJob = () => setJobId(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const trackRef = useRef<HTMLElement | null>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const trackAbort = useRef<AbortController | null>(null);
-  const autoSaved = useRef<string | null>(null);
 
   const platform = detectPlatform(input);
   const mode: InputMode = platform ? 'link' : looksLikeUrl(input) ? 'invalid-link' : 'search';
@@ -70,17 +86,15 @@ export function Downloader({ onArtColor }: Props) {
   const artColor = useCoverColor(track?.metadata.coverUrl ?? collection?.coverUrl);
   useEffect(() => onArtColor(artColor), [artColor, onArtColor]);
 
-  // İş bitince dosyayı bir kez otomatik kaydet (masaüstünde İndirilenler\FlacSync'e gider)
+  // Ana sayfadaki aramadan gelen sorgu
+  const lastRequest = useRef<number | null>(null);
   useEffect(() => {
-    if (job?.status !== 'completed' || !job.file || autoSaved.current === job.id) return;
-    autoSaved.current = job.id;
-    const a = document.createElement('a');
-    a.href = api.fileUrl(job.id);
-    a.download = job.file.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }, [job]);
+    if (!request || lastRequest.current === request.nonce) return;
+    lastRequest.current = request.nonce;
+    setInput(request.query);
+    submit(request.query, true);
+    // yalnızca yeni istekte çalışır
+  }, [request]);
 
   useEffect(
     () => () => {
@@ -155,6 +169,8 @@ export function Downloader({ onArtColor }: Props) {
     setTrack(null);
     setCollection(null);
     setSource({ status: 'idle' });
+    setSearchQuery(query);
+    setNotice(null);
 
     try {
       const res = await api.search(query, controller.signal);
@@ -177,9 +193,9 @@ export function Downloader({ onArtColor }: Props) {
     }
   }
 
-  function submit(value = input) {
+  function submit(value = input, force = false) {
     const q = value.trim();
-    if (!q || busy) return;
+    if (!q || (busy && !force)) return;
     if (detectPlatform(q)) {
       searchAbort.current?.abort();
       setSearch(null);
@@ -199,6 +215,31 @@ export function Downloader({ onArtColor }: Props) {
     setSelected(result);
     void loadTrack(result.url);
     trackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function loadMore() {
+    if (!searchQuery || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.search(searchQuery, undefined, MORE_LIMIT);
+      setSearch((prev) => (prev ? { ...prev, results: res.results, albums: prev.albums.length ? prev.albums : res.albums } : res));
+    } catch (err) {
+      setError(toUiError(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  /** Seçilen şarkıları sıraya ekler: tek şarkı tek iş, birden fazlası tek toplu iş. */
+  async function addToQueue(results: SearchResult[]) {
+    if (results.length === 0) return;
+    if (results.length === 1) {
+      const created = await queue.enqueue(results[0]!.url, format);
+      if (created) setNotice(t('queue.addedOne', { title: results[0]!.title }));
+    } else {
+      const created = await queue.enqueueBatch(searchQuery || t('queue.selection'), format, results.map((r) => ({ url: r.url })), false);
+      if (created) setNotice(t('queue.addedMany', { count: results.length }));
+    }
   }
 
   function openAlbum(album: AlbumResult) {
@@ -281,10 +322,25 @@ export function Downloader({ onArtColor }: Props) {
         )}
       </div>
 
-      {error && (
+      {notice && (
+        <div className="animate-rise flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-amber/10 px-4 py-3 text-[15px] ring-1 ring-amber/30" role="status">
+          <CheckCircle2 className="size-5 shrink-0 text-amber" />
+          <span className="flex-1 text-paper">{notice}</span>
+          <button type="button" onClick={() => onNavigate('queue')} className="inline-flex items-center gap-1 text-sm font-semibold text-amber hover:underline">
+            {t('home.openQueue')}
+            <ArrowRight className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {(error || queue.error) && (
         <p className="flex items-start gap-2.5 text-[15px] text-danger" role="alert">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          {error.code === 'VALIDATION_ERROR' && error.message ? error.message : tError(error.code, error.message)}
+          {error
+            ? error.code === 'VALIDATION_ERROR' && error.message
+              ? error.message
+              : tError(error.code, error.message)
+            : queue.error && tError(queue.error.code, queue.error.message)}
         </p>
       )}
 
@@ -326,12 +382,15 @@ export function Downloader({ onArtColor }: Props) {
               <DownloadControls
                 format={format}
                 onFormatChange={setFormat}
-                onDownload={() => trackUrl && start(trackUrl, format)}
+                onDownload={() => {
+                  if (!trackUrl) return;
+                  void queue.enqueue(trackUrl, format).then((created) => created && setJobId(created.id));
+                }}
                 onReset={resetAll}
                 canDownload={Boolean(trackUrl) && source.status !== 'error' && !isRunning}
                 isRunning={isRunning}
                 job={job}
-                jobError={jobError}
+                jobError={null}
                 fileUrl={job && isTerminal(job) ? api.fileUrl(job.id) : null}
               />
             </div>
@@ -341,7 +400,19 @@ export function Downloader({ onArtColor }: Props) {
 
       {albums.length > 0 && <AlbumResults albums={albums} onOpen={openAlbum} />}
 
-      {others.length > 1 && <ResultsList results={others} selectedId={selected?.id ?? null} onSelect={choose} />}
+      {others.length > 1 && (
+        <ResultsList
+          results={others}
+          selectedId={selected?.id ?? null}
+          onSelect={choose}
+          onAddToQueue={(list) => void addToQueue(list)}
+          format={format}
+          onFormatChange={setFormat}
+          canLoadMore={others.length < MORE_LIMIT && others.length >= 8}
+          loadingMore={loadingMore}
+          onLoadMore={() => void loadMore()}
+        />
+      )}
     </div>
   );
 }

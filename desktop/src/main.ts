@@ -1,11 +1,10 @@
-import { execFile } from 'node:child_process';
-import { once } from 'node:events';
 import { copyFile } from 'node:fs/promises';
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join, parse } from 'node:path';
 import dotenv from 'dotenv';
+import { ensureYtDlpDir, updateYtDlpDir } from './ytdlp-dir.js';
 import {
   app,
   BrowserWindow,
@@ -20,6 +19,7 @@ import {
 
 const APP_NAME = 'FlacSync';
 const APP_ID = 'com.flacsync.desktop';
+const PREFERRED_PORT = 47821;
 const EXE = process.platform === 'win32' ? '.exe' : '';
 
 const SETTINGS_TEMPLATE = `# FlacSync ayarları
@@ -65,14 +65,18 @@ const paths = {
   get logFile() {
     return join(this.userData, 'logs', 'flacsync.log');
   },
-  /** yt-dlp kendini güncelleyebilsin diye yazılabilir bir klasöre kopyalanır */
-  get ytDlp() {
-    return join(this.userData, 'bin', `yt-dlp${EXE}`);
+  /** yt-dlp klasör sürümü; güncellenebilsin diye yazılabilir bir klasöre kopyalanır */
+  get ytDlpDir() {
+    return join(this.userData, 'bin', 'yt-dlp');
   },
-  get bundledYtDlp() {
-    return app.isPackaged
-      ? join(resourceRoot(), 'bin', `yt-dlp${EXE}`)
-      : join(resourceRoot(), 'node_modules', 'yt-dlp-exec', 'bin', `yt-dlp${EXE}`);
+  get ytDlp() {
+    return join(this.ytDlpDir, `yt-dlp${EXE}`);
+  },
+  get bundledYtDlpDir() {
+    return app.isPackaged ? join(resourceRoot(), 'bin', 'yt-dlp') : join(resourceRoot(), 'vendor', 'yt-dlp');
+  },
+  get savedIndex() {
+    return join(this.userData, 'data', 'saved-files.json');
   },
   get ffmpeg() {
     return app.isPackaged
@@ -100,7 +104,7 @@ function configureEnvironment(): void {
   mkdirSync(join(paths.userData, 'bin'), { recursive: true });
   if (!existsSync(paths.settingsFile)) writeFileSync(paths.settingsFile, SETTINGS_TEMPLATE, 'utf8');
 
-  if (!existsSync(paths.ytDlp)) copyFileSync(paths.bundledYtDlp, paths.ytDlp);
+  ensureYtDlpDir(paths.bundledYtDlpDir, paths.ytDlpDir, app.getVersion());
   if (!existsSync(paths.ffmpeg)) throw new Error(`ffmpeg bulunamadı: ${paths.ffmpeg}`);
   if (!existsSync(paths.frontend)) throw new Error(`Arayüz dosyaları bulunamadı: ${paths.frontend}`);
 
@@ -112,6 +116,7 @@ function configureEnvironment(): void {
     NODE_ENV: 'production',
     CORS_ORIGIN: 'http://127.0.0.1',
     DOWNLOAD_DIR: join(paths.userData, 'cache', 'downloads'),
+    DATA_DIR: join(paths.userData, 'data'),
     TEMP_DIR: join(app.getPath('temp'), APP_NAME),
     FILE_RETENTION_MINUTES: '30',
     YTDLP_PATH: paths.ytDlp,
@@ -125,13 +130,23 @@ function configureEnvironment(): void {
 
 async function startServer(): Promise<{ server: Server; url: string }> {
   // Ortam değişkenleri ayarlandıktan SONRA yüklenmeli (config/env.ts import anında okur)
-  const [{ createApp }, { jobsService }] = await Promise.all([
+  const [{ createApp }, { jobsService }, { historyService }] = await Promise.all([
     import('../../backend/src/app.js'),
     import('../../backend/src/services/jobs.service.js'),
+    import('../../backend/src/services/history.service.js'),
   ]);
+  flushHistory = () => historyService.flush();
 
-  const server = createApp().listen(0, '127.0.0.1');
-  await once(server, 'listening');
+  // Sabit port: arayüzün kökeni (origin) aynı kalır, dil / format tercihleri yeniden açılışta korunur.
+  // Port doluysa rastgele bir porta düşülür.
+  const app = createApp();
+  const listen = (port: number) =>
+    new Promise<Server>((resolve, reject) => {
+      const srv = app.listen(port, '127.0.0.1');
+      srv.once('listening', () => resolve(srv));
+      srv.once('error', reject);
+    });
+  const server = await listen(PREFERRED_PORT).catch(() => listen(0));
   jobsService.startSweeper();
 
   const { port } = server.address() as AddressInfo;
@@ -143,6 +158,8 @@ async function startServer(): Promise<{ server: Server; url: string }> {
 // ---------------------------------------------------------------------------
 
 let mainWindow: BrowserWindow | null = null;
+/** Kapanışta indirme geçmişini diske yazar (startServer sonrası atanır) */
+let flushHistory: () => Promise<void> = async () => undefined;
 
 function createWindow(url: string): BrowserWindow {
   const win = new BrowserWindow({
@@ -236,6 +253,27 @@ function folderFromUrl(url: string): string | null {
  */
 /** İndirme işi → kaydedildiği dosya. Aynı iş ikinci kez kaydedilmez, mevcut dosya gösterilir. */
 const savedByJob = new Map<string, string>();
+const MAX_SAVED_INDEX = 2000;
+let savedIndexTimer: NodeJS.Timeout | null = null;
+
+/** Önceki oturumlarda kaydedilen dosyalar: ana sayfadaki "Klasörde göster" yeniden başlatmadan sonra da çalışsın. */
+function loadSavedIndex(): void {
+  try {
+    const entries = JSON.parse(readFileSync(paths.savedIndex, 'utf8')) as Array<[string, string]>;
+    for (const [jobId, file] of entries) if (JOB_ID.test(jobId)) savedByJob.set(jobId, file);
+  } catch {
+    // ilk açılış ya da bozuk dosya: boş başla
+  }
+}
+
+function persistSavedIndex(): void {
+  if (savedIndexTimer) clearTimeout(savedIndexTimer);
+  savedIndexTimer = setTimeout(() => {
+    const entries = [...savedByJob.entries()].slice(-MAX_SAVED_INDEX);
+    mkdirSync(parse(paths.savedIndex).dir, { recursive: true });
+    writeFileSync(paths.savedIndex, JSON.stringify(entries), 'utf8');
+  }, 500);
+}
 const JOB_FILE_URL = /\/api\/download\/([0-9a-f-]{36})\/file/i;
 const JOB_ID = /^[0-9a-f-]{36}$/i;
 
@@ -258,7 +296,10 @@ function setupDownloads(): void {
 
     item.once('done', (_e, state) => {
       if (state === 'completed') {
-        if (jobId) savedByJob.set(jobId, target);
+        if (jobId) {
+          savedByJob.set(jobId, target);
+          persistSavedIndex();
+        }
         notifySaved(target);
       } else if (state === 'interrupted' && mainWindow) {
         void dialog.showMessageBox(mainWindow, {
@@ -319,18 +360,25 @@ function relaunch(): void {
   app.exit(0);
 }
 
-function updateYtDlp(): void {
-  execFile(paths.ytDlp, ['-U'], { timeout: 120_000, windowsHide: true }, (err, stdout, stderr) => {
-    const output = `${stdout}\n${stderr}`.trim().split(/\r?\n/).slice(-6).join('\n');
-    const options = {
-      type: err ? ('error' as const) : ('info' as const),
+async function updateYtDlp(): Promise<void> {
+  const show = (options: Electron.MessageBoxOptions) =>
+    mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options);
+  try {
+    const result = await updateYtDlpDir(paths.ytDlpDir, join(app.getPath('temp'), APP_NAME));
+    await show({
+      type: 'info',
       title: APP_NAME,
-      message: err ? "yt-dlp güncellenemedi" : "yt-dlp güncelleme kontrolü tamamlandı",
-      detail: output || (err?.message ?? ''),
-    };
-    if (mainWindow) void dialog.showMessageBox(mainWindow, options);
-    else void dialog.showMessageBox(options);
-  });
+      message: result.updated ? 'yt-dlp güncellendi' : 'yt-dlp zaten güncel',
+      detail: result.updated ? `${result.from} → ${result.to}` : `Sürüm: ${result.to}`,
+    });
+  } catch (err) {
+    await show({
+      type: 'error',
+      title: APP_NAME,
+      message: 'yt-dlp güncellenemedi',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function showAbout(): void {
@@ -373,7 +421,7 @@ function buildMenu(): void {
     {
       label: 'Araçlar',
       submenu: [
-        { label: "yt-dlp'yi güncelle", click: updateYtDlp },
+        { label: "yt-dlp'yi güncelle", click: () => void updateYtDlp() },
         { label: 'Log dosyasını aç', click: () => void shell.openPath(paths.logFile) },
         { type: 'separator' },
         { role: 'reload', label: 'Sayfayı yenile' },
@@ -422,6 +470,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     try {
       configureEnvironment();
+      loadSavedIndex();
       const started = await startServer();
       server = started.server;
       buildMenu();
@@ -439,5 +488,12 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => server?.close());
+  let quitting = false;
+  app.on('before-quit', (event) => {
+    if (quitting) return;
+    quitting = true;
+    event.preventDefault();
+    server?.close();
+    void flushHistory().finally(() => app.exit(0));
+  });
 }

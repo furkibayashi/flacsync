@@ -120,6 +120,16 @@ describe('rankCandidates', () => {
     expect(live[0]!.title).toContain('Live');
   });
 
+  it('sorguda istenmeyen sürüm eki (dub / remix adı) orijinalin önüne geçmez', () => {
+    const list = rankCandidates('massive attack teardrop', [
+      c({ source: 'deezer', title: 'Teardrop (Mazaruni Dub One)', artist: 'Massive Attack', duration: 420, position: 0, popularity: 0.6 }),
+      c({ source: 'deezer', title: 'Teardrop', artist: 'Massive Attack', duration: 330, position: 1, popularity: 0.9 }),
+      c({ source: 'apple-music', title: 'Teardrop (Mazaruni Dub One)', artist: 'Massive Attack', duration: 420, position: 0 }),
+      c({ source: 'apple-music', title: 'Teardrop', artist: 'Massive Attack', duration: 330, position: 1 }),
+    ], 5);
+    expect(list[0]!.title).toBe('Teardrop');
+  });
+
   it('ISRC aynıysa farklı başlık yazımlarını da birleştirir', () => {
     const merged = rankCandidates('song', [
       c({ source: 'deezer', title: 'Song', artist: 'A', isrc: 'USAAA0000001' }),

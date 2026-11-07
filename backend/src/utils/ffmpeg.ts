@@ -31,11 +31,16 @@ export interface FfmpegJob {
   /** Saniye cinsinden toplam süre → yüzde hesabı */
   durationSec?: number | null;
   onProgress?: (fraction: number) => void;
+  /** İptal edilince ffmpeg süreci sonlandırılır */
+  signal?: AbortSignal;
 }
 
-export function runFfmpeg({ inputs, output, args, durationSec, onProgress }: FfmpegJob): Promise<void> {
+export function runFfmpeg({ inputs, output, args, durationSec, onProgress, signal }: FfmpegJob): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('İptal edildi'));
     const cmd = ffmpeg();
+    const onAbort = () => cmd.kill('SIGKILL');
+    signal?.addEventListener('abort', onAbort, { once: true });
     for (const input of inputs) cmd.input(input);
     if (args.length > 0) cmd.outputOptions(...(args as [string, ...string[]]));
 
@@ -50,10 +55,15 @@ export function runFfmpeg({ inputs, output, args, durationSec, onProgress }: Ffm
         onProgress(Math.min(Math.max(fraction, 0), 1));
       })
       .on('error', (err: Error, _stdout: string | null, stderr: string | null) => {
+        signal?.removeEventListener('abort', onAbort);
+        if (signal?.aborted) return reject(new Error('İptal edildi', { cause: err }));
         const tail = stderr?.trim().split('\n').slice(-3).join(' | ');
         reject(new Error(`ffmpeg hatası: ${err.message}${tail ? ` (${tail})` : ''}`, { cause: err }));
       })
-      .on('end', () => resolve())
+      .on('end', () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      })
       .save(output);
   });
 }

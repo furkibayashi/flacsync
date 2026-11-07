@@ -1,11 +1,58 @@
 import clsx from 'clsx';
 import { AlertCircle, Check, Download, FolderOpen, Loader2, RotateCcw } from 'lucide-react';
-import { useMemo, useState, type CSSProperties } from 'react';
-import { useBatchDownloads } from '../hooks/useBatchDownloads';
+import { useCallback, useMemo, useState, type CSSProperties } from 'react';
+import { usePreferredFormat } from '../hooks/usePreferredFormat';
+import { isTerminal, useQueue } from '../state/QueueProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration } from '../lib/format';
 import { api, isDesktopApp, openSaveFolder, revealSavedFile } from '../services/api';
 import type { BatchItem, Collection, CollectionTrack, DownloadJob, OutputFormat } from '../types/api';
+
+/**
+ * Bu albümün indirmeleri, global sıranın üzerinde: parça linki → iş eşlemesi burada tutulur,
+ * ilerleme ve kaydetme QueueProvider'dan gelir (sayfa değişince kopmaz).
+ */
+function useCollectionDownloads() {
+  const { jobs, batches, enqueueBatch, error } = useQueue();
+  const [jobIdByUrl, setJobIdByUrl] = useState<Record<string, string>>({});
+  const [batchIds, setBatchIds] = useState<string[]>([]);
+  const [lastBulkId, setLastBulkId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  const start = useCallback(
+    async (name: string, format: OutputFormat, items: BatchItem[], { bulk }: { bulk: boolean }) => {
+      setStarting(true);
+      const batch = await enqueueBatch(name, format, items, true);
+      setStarting(false);
+      if (!batch) return;
+      setJobIdByUrl((prev) => {
+        const next = { ...prev };
+        items.forEach((item, i) => {
+          const id = batch.jobIds[i];
+          if (id) next[item.url] = id;
+        });
+        return next;
+      });
+      setBatchIds((prev) => [...prev, batch.id]);
+      if (bulk) setLastBulkId(batch.id);
+    },
+    [enqueueBatch],
+  );
+
+  const jobForUrl = useCallback((url: string) => jobs[jobIdByUrl[url] ?? ''] ?? null, [jobs, jobIdByUrl]);
+  const lastBulk = lastBulkId ? batches[lastBulkId] ?? null : null;
+  const running = batchIds.some((id) => batches[id]?.status === 'running');
+  const anyActive = Object.values(jobIdByUrl).some((id) => jobs[id] && !isTerminal(jobs[id]));
+
+  return {
+    start,
+    jobForUrl,
+    error,
+    isRunning: starting || running || anyActive,
+    bulkRunning: starting || lastBulk?.status === 'running',
+    lastBulk,
+  };
+}
 import { FormatPicker } from './FormatPicker';
 import { PlatformTag } from './PlatformTag';
 import { Sleeve } from './Sleeve';
@@ -83,9 +130,9 @@ function RowStatus({ job, title, onDownload }: { job: DownloadJob | null; title:
  */
 export function CollectionView({ collection, onReset }: Props) {
   const { t, tError } = useI18n();
-  const [format, setFormat] = useState<OutputFormat>('mp3');
+  const [format, setFormat] = usePreferredFormat();
   const [selected, setSelected] = useState<Set<string>>(() => new Set(collection.tracks.map((tr) => tr.url)));
-  const downloads = useBatchDownloads();
+  const downloads = useCollectionDownloads();
 
   const isAlbum = collection.type === 'album';
   const folder = isAlbum && collection.artist ? `${collection.artist} - ${collection.title}` : collection.title;
@@ -223,10 +270,10 @@ export function CollectionView({ collection, onReset }: Props) {
                   {bulk.failed > 0 && <span className="text-danger">{t('collection.failed', { count: bulk.failed })}</span>}
                   {isDesktopApp ? (
                     <>
-                      <span className="text-fade">{t('collection.savedTo', { folder: bulk.folder })}</span>
+                      <span className="text-fade">{t('collection.savedTo', { folder: bulk.folder ?? collection.title })}</span>
                       <button
                         type="button"
-                        onClick={() => openSaveFolder(bulk.folder)}
+                        onClick={() => openSaveFolder(bulk.folder ?? undefined)}
                         className="inline-flex items-center gap-1.5 font-semibold text-amber underline-offset-4 hover:underline"
                       >
                         <FolderOpen className="size-4" />

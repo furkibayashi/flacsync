@@ -88,11 +88,13 @@ export interface BatchItem {
 export interface Batch {
   id: string;
   name: string;
-  folder: string;
+  /** Masaüstünde kaydedilecek alt klasör; seçilmiş tek tek şarkılarda null */
+  folder: string | null;
   format: OutputFormat;
   total: number;
   completed: number;
   failed: number;
+  cancelled: number;
   progress: number;
   status: 'running' | 'completed' | 'partial' | 'failed';
   createdAt: string;
@@ -135,7 +137,23 @@ export interface SearchResponse {
   sources: Record<Platform, 'ok' | 'empty' | 'error' | 'skipped'>;
 }
 
-export type JobStatus = 'queued' | 'resolving' | 'downloading' | 'converting' | 'tagging' | 'completed' | 'failed';
+export type JobStatus =
+  | 'queued'
+  | 'resolving'
+  | 'downloading'
+  | 'converting'
+  | 'tagging'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface JobTimings {
+  waited: number;
+  metadata: number;
+  resolve: number;
+  download: number;
+  total: number;
+}
 
 export interface DownloadJob {
   id: string;
@@ -150,6 +168,35 @@ export interface DownloadJob {
   source: ResolvedSource | null;
   file: { name: string; size: number; mimeType: string; hasCover: boolean } | null;
   error: { code: string; message: string; status: number } | null;
+  timings: JobTimings | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QueueSnapshot {
+  jobs: DownloadJob[];
+  batches: Batch[];
+  stats: { active: number; queued: number; completed: number; failed: number; cancelled: number };
+}
+
+export interface HistoryEntry {
+  id: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  coverUrl: string | null;
+  format: OutputFormat;
+  fileName: string;
+  size: number;
+  platform: Platform | null;
+  sourceUrl: string;
+  collection: string | null;
+  durationMs: number | null;
+  completedAt: string;
+}
+
+export interface HistoryResponse {
+  items: HistoryEntry[];
+  total: number;
+  stats: { total: number; totalBytes: number; last7Days: number; formats: Record<OutputFormat, number> };
 }

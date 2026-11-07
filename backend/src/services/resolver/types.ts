@@ -1,3 +1,5 @@
+import type { DownloadInfo } from '../../utils/ytdlp.js';
+
 export type MatchStrategy = 'isrc' | 'ytmusic-search' | 'youtube-search';
 
 export interface AudioFormat {
@@ -41,6 +43,8 @@ export interface ResolvedSource {
   match: MatchInfo;
   /** Deezer'ın herkese açık 30 sn önizlemesi (arayüzde dinletme için) */
   previewUrl: string | null;
+  /** İç kullanım: indirmede bilgiyi yeniden çekmemek için kırpılmış yt-dlp bilgisi (istemciye gönderilmez) */
+  downloadInfo?: DownloadInfo | null;
 }
 
 export type ResolverErrorCode = 'NO_MATCH' | 'NO_AUDIO_FORMAT' | 'PROVIDER_ERROR';
