@@ -1,10 +1,10 @@
 import clsx from 'clsx';
-import { AlertCircle, Check, Download, Loader2, RotateCcw } from 'lucide-react';
+import { AlertCircle, Check, Download, FolderOpen, Loader2, RotateCcw } from 'lucide-react';
 import { useMemo, useState, type CSSProperties } from 'react';
 import { useBatchDownloads } from '../hooks/useBatchDownloads';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration } from '../lib/format';
-import { api, isDesktopApp } from '../services/api';
+import { api, isDesktopApp, openSaveFolder, revealSavedFile } from '../services/api';
 import type { BatchItem, Collection, CollectionTrack, DownloadJob, OutputFormat } from '../types/api';
 import { FormatPicker } from './FormatPicker';
 import { PlatformTag } from './PlatformTag';
@@ -47,7 +47,16 @@ function RowStatus({ job, title, onDownload }: { job: DownloadJob | null; title:
     return (
       <span className="inline-flex items-center gap-1.5 text-sm text-amber">
         <Check className="size-4" strokeWidth={3} />
-        {!isDesktopApp && job.file ? (
+        {isDesktopApp ? (
+          <button
+            type="button"
+            onClick={() => revealSavedFile(job.id)}
+            title={t('action.showInFolder')}
+            className="underline-offset-4 hover:underline"
+          >
+            {t('collection.rowDone')}
+          </button>
+        ) : job.file ? (
           <a href={api.fileUrl(job.id)} download={job.file.name} className="underline-offset-4 hover:underline">
             {t('collection.rowDone')}
           </a>
@@ -213,7 +222,17 @@ export function CollectionView({ collection, onReset }: Props) {
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-sm">
                   {bulk.failed > 0 && <span className="text-danger">{t('collection.failed', { count: bulk.failed })}</span>}
                   {isDesktopApp ? (
-                    <span className="text-fade">{t('collection.savedTo', { folder: bulk.folder })}</span>
+                    <>
+                      <span className="text-fade">{t('collection.savedTo', { folder: bulk.folder })}</span>
+                      <button
+                        type="button"
+                        onClick={() => openSaveFolder(bulk.folder)}
+                        className="inline-flex items-center gap-1.5 font-semibold text-amber underline-offset-4 hover:underline"
+                      >
+                        <FolderOpen className="size-4" />
+                        {t('collection.openFolder')}
+                      </button>
+                    </>
                   ) : (
                     bulk.status !== 'running' &&
                     bulk.completed > 0 && (

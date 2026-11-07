@@ -92,4 +92,19 @@ export const api = {
 };
 
 /** Masaüstü (Electron) uygulamasında mı çalışıyoruz? Orada dosyalar klasöre otomatik kaydedilir. */
-export const isDesktopApp = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
+export const isDesktopApp =
+  typeof window !== 'undefined' && (Boolean(window.flacsync) || /Electron/i.test(navigator.userAgent));
+
+/** Masaüstünde kaydedilen dosyayı Gezgin'de göster (köprü yoksa kayıt klasörünü açar). */
+export function revealSavedFile(jobId: string): void {
+  void window.flacsync?.revealFile(jobId);
+}
+
+/** Masaüstünde Windows "Farklı kaydet" penceresi; seçilen yolu döndürür (iptalde null). */
+export async function saveFileAs(jobId: string): Promise<string | null> {
+  return (await window.flacsync?.saveAs(jobId)) ?? null;
+}
+
+export function openSaveFolder(folder?: string): void {
+  void window.flacsync?.openSaveFolder(folder);
+}

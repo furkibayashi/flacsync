@@ -32,3 +32,15 @@ await build({
     'fluent-ffmpeg': require.resolve('fluent-ffmpeg/lib/fluent-ffmpeg.js'),
   },
 });
+
+// Sandbox'lı preload: yalnızca 'electron' modülüne erişebilir, tek dosya olmalı
+await build({
+  entryPoints: [join(here, '..', 'src', 'preload.ts')],
+  outfile: join(here, '..', 'dist', 'preload.cjs'),
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node20',
+  external: ['electron'],
+  logLevel: 'info',
+});

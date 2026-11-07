@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { once } from 'node:events';
+import { copyFile } from 'node:fs/promises';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -9,6 +10,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   Menu,
   Notification,
   session,
@@ -157,6 +159,7 @@ function createWindow(url: string): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      preload: join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -231,8 +234,22 @@ function folderFromUrl(url: string): string | null {
  * Arayüzden tetiklenen indirmeler sorulmadan İndirilenler\FlacSync'e kaydedilir.
  * Albüm / çalma listesi parçaları "?folder=" ile kendi alt klasörlerine gider.
  */
+/** İndirme işi → kaydedildiği dosya. Aynı iş ikinci kez kaydedilmez, mevcut dosya gösterilir. */
+const savedByJob = new Map<string, string>();
+const JOB_FILE_URL = /\/api\/download\/([0-9a-f-]{36})\/file/i;
+const JOB_ID = /^[0-9a-f-]{36}$/i;
+
 function setupDownloads(): void {
-  session.defaultSession.on('will-download', (_event, item) => {
+  session.defaultSession.on('will-download', (event, item) => {
+    const jobId = JOB_FILE_URL.exec(item.getURL())?.[1];
+    const existing = jobId ? savedByJob.get(jobId) : undefined;
+    if (existing && existsSync(existing)) {
+      // Kopya oluşturma; zaten kaydedilmiş dosyayı Gezgin'de göster
+      event.preventDefault();
+      shell.showItemInFolder(existing);
+      return;
+    }
+
     const folder = folderFromUrl(item.getURL());
     const dir = folder ? join(paths.saveDir, folder) : paths.saveDir;
     mkdirSync(dir, { recursive: true });
@@ -241,6 +258,7 @@ function setupDownloads(): void {
 
     item.once('done', (_e, state) => {
       if (state === 'completed') {
+        if (jobId) savedByJob.set(jobId, target);
         notifySaved(target);
       } else if (state === 'interrupted' && mainWindow) {
         void dialog.showMessageBox(mainWindow, {
@@ -251,6 +269,42 @@ function setupDownloads(): void {
         });
       }
     });
+  });
+}
+
+/** Arayüzün çağırabildiği iki işlem (preload.ts üzerinden). Girdiler doğrulanır. */
+function setupIpc(): void {
+  ipcMain.handle('flacsync:reveal-file', (_e, jobId: unknown) => {
+    const file = typeof jobId === 'string' && JOB_ID.test(jobId) ? savedByJob.get(jobId) : undefined;
+    if (file && existsSync(file)) {
+      shell.showItemInFolder(file);
+      return true;
+    }
+    mkdirSync(paths.saveDir, { recursive: true });
+    void shell.openPath(paths.saveDir);
+    return false;
+  });
+
+  ipcMain.handle('flacsync:save-as', async (_e, jobId: unknown) => {
+    const file = typeof jobId === 'string' && JOB_ID.test(jobId) ? savedByJob.get(jobId) : undefined;
+    if (!file || !existsSync(file)) return null;
+    const ext = parse(file).ext.replace('.', '');
+    const options = {
+      title: 'Farklı kaydet',
+      defaultPath: file,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    };
+    const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return null;
+    if (result.filePath !== file) await copyFile(file, result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('flacsync:open-save-folder', async (_e, folder: unknown) => {
+    const sub = typeof folder === 'string' ? folderFromUrl(`http://x/?folder=${encodeURIComponent(folder)}`) : null;
+    const dir = sub ? join(paths.saveDir, sub) : paths.saveDir;
+    mkdirSync(dir, { recursive: true });
+    await shell.openPath(dir);
   });
 }
 
@@ -372,6 +426,7 @@ if (!app.requestSingleInstanceLock()) {
       server = started.server;
       buildMenu();
       setupDownloads();
+      setupIpc();
       mainWindow = createWindow(started.url);
       mainWindow.on('closed', () => {
         mainWindow = null;

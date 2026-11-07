@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "productName": "FlacSync",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "FlacSync masaüstü uygulaması",
   "author": "FlacSync contributors",
@@ -24,6 +24,7 @@
     },
     "files": [
       "dist/main.cjs",
+      "dist/preload.cjs",
       "package.json"
     ],
     "extraResources": [

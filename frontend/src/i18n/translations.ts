@@ -80,6 +80,12 @@ const tr = {
   'status.failed': 'İndirme tamamlanamadı',
 
   'done.ready': '{name} hazır.',
+  'done.saved': '{name} kaydedildi.',
+  'done.location': 'İndirilenler\\FlacSync klasöründe',
+  'action.showInFolder': 'Klasörde göster',
+  'action.saveAs': 'Farklı kaydet…',
+  'done.savedAs': 'Kopyalandı: {path}',
+  'collection.openFolder': 'Klasörü aç',
   'done.cover': 'kapak gömülü',
   'done.noCover': 'kapaksız',
 
@@ -189,6 +195,12 @@ const en: Record<TranslationKey, string> = {
   'status.failed': 'Download didn’t finish',
 
   'done.ready': '{name} is ready.',
+  'done.saved': '{name} saved.',
+  'done.location': 'In Downloads\\FlacSync',
+  'action.showInFolder': 'Show in folder',
+  'action.saveAs': 'Save as…',
+  'done.savedAs': 'Copied to {path}',
+  'collection.openFolder': 'Open folder',
   'done.cover': 'cover embedded',
   'done.noCover': 'no cover',
 

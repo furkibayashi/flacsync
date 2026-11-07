@@ -1,5 +1,7 @@
 import clsx from 'clsx';
-import { AlertCircle, Check, Download, Loader2, RotateCcw } from 'lucide-react';
+import { AlertCircle, Check, Download, FolderOpen, Loader2, RotateCcw, Save } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { isDesktopApp, revealSavedFile, saveFileAs } from '../services/api';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatBytes } from '../lib/format';
 import type { UiError } from '../services/api';
@@ -30,6 +32,9 @@ export function DownloadControls({
   fileUrl,
 }: Props) {
   const { t, tError } = useI18n();
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  // Yeni indirme başlayınca önceki "farklı kaydet" bilgisini temizle
+  useEffect(() => setSavedAs(null), [job?.id]);
   const done = job?.status === 'completed';
   const failed = job?.status === 'failed';
 
@@ -89,21 +94,49 @@ export function DownloadControls({
           )}
 
           {done && job.file && fileUrl && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2">
-              <p className="flex min-w-0 items-center gap-2 text-[15px] text-paper">
-                <Check className="size-4 shrink-0 text-amber" strokeWidth={3} />
-                <span className="truncate">{t('done.ready', { name: job.file.name })}</span>
-              </p>
-              <span className="text-sm text-fade">
+            <div className="space-y-1 pt-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <p className="flex min-w-0 items-center gap-2 text-[15px] text-paper">
+                  <Check className="size-4 shrink-0 text-amber" strokeWidth={3} />
+                  <span className="truncate">
+                    {isDesktopApp ? t('done.saved', { name: job.file.name }) : t('done.ready', { name: job.file.name })}
+                  </span>
+                </p>
+                {isDesktopApp ? (
+                  // Masaüstünde dosya zaten otomatik kaydedildi: yerini göster ya da başka yere kopyala
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => revealSavedFile(job.id)}
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber underline-offset-4 hover:underline"
+                    >
+                      <FolderOpen className="size-4" />
+                      {t('action.showInFolder')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => setSavedAs(await saveFileAs(job.id))}
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-dust underline-offset-4 hover:text-paper hover:underline"
+                    >
+                      <Save className="size-4" />
+                      {t('action.saveAs')}
+                    </button>
+                  </>
+                ) : (
+                  <a
+                    href={fileUrl}
+                    download={job.file.name}
+                    className="text-sm font-semibold text-amber underline-offset-4 hover:underline"
+                  >
+                    {t('action.saveFile')}
+                  </a>
+                )}
+              </div>
+              <p className="text-sm text-fade">
                 {formatBytes(job.file.size)}, {job.file.hasCover ? t('done.cover') : t('done.noCover')}
-              </span>
-              <a
-                href={fileUrl}
-                download={job.file.name}
-                className="text-sm font-semibold text-amber underline-offset-4 hover:underline"
-              >
-                {t('action.saveFile')}
-              </a>
+                {isDesktopApp && `. ${t('done.location')}`}
+              </p>
+              {savedAs && <p className="text-sm text-amber">{t('done.savedAs', { path: savedAs })}</p>}
             </div>
           )}
         </div>
