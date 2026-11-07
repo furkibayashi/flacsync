@@ -19,6 +19,8 @@ export interface TrackMetadata {
   isrc: string | null;
   /** Saniye cinsinden */
   duration: number | null;
+  /** Müzik türü (Deezer albüm türü / Apple birincil tür); bilinmiyorsa null */
+  genre: string | null;
 }
 
 export interface ParsedMusicUrl {
@@ -52,6 +54,8 @@ export interface CollectionTrack {
   isrc: string | null;
   /** Bu parçanın kendi platformundaki linki — indirme akışına verilir */
   url: string;
+  /** Herkese açık 30 sn önizleme (oynatıcı için); yoksa null */
+  previewUrl: string | null;
 }
 
 export interface Collection {

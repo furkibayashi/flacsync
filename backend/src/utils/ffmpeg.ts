@@ -9,7 +9,7 @@ if (!ffmpegPath) {
 }
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-export { ffmpeg };
+export { ffmpeg, ffmpegPath };
 
 /** "00:01:23.45" → 83.45 */
 export function timemarkToSeconds(timemark: string | undefined): number {

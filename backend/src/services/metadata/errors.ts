@@ -6,7 +6,9 @@ export type MetadataErrorCode =
   | 'UNSUPPORTED_RESOURCE'
   | 'NOT_FOUND'
   | 'PROVIDER_ERROR'
-  | 'CONFIG_MISSING';
+  | 'CONFIG_MISSING'
+  /** Amazon Music şarkı linki: Odesli anahtarı olmadan çözülemiyor */
+  | 'AMAZON_TRACK_NEEDS_KEY';
 
 const STATUS_BY_CODE: Record<MetadataErrorCode, number> = {
   INVALID_URL: 400,
@@ -15,6 +17,7 @@ const STATUS_BY_CODE: Record<MetadataErrorCode, number> = {
   NOT_FOUND: 404,
   PROVIDER_ERROR: 502,
   CONFIG_MISSING: 500,
+  AMAZON_TRACK_NEEDS_KEY: 422,
 };
 
 export class MetadataError extends Error {

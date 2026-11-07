@@ -1,9 +1,11 @@
 import clsx from 'clsx';
-import { AlertCircle, Check, Download, FolderOpen, Loader2, RotateCcw } from 'lucide-react';
+import { AlertCircle, AudioLines, Check, Download, FolderOpen, Loader2, Play, RotateCcw, Shuffle } from 'lucide-react';
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { usePreferredFormat } from '../hooks/usePreferredFormat';
+import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { isTerminal, useQueue } from '../state/QueueProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { ArtistLinks } from './ArtistLinks';
 import { formatDuration } from '../lib/format';
 import { api, isDesktopApp, openSaveFolder, revealSavedFile } from '../services/api';
 import type { BatchItem, Collection, CollectionTrack, DownloadJob, OutputFormat } from '../types/api';
@@ -140,6 +142,31 @@ export function CollectionView({ collection, onReset }: Props) {
   const allSelected = selected.size === collection.tracks.length;
   const multiDisc = useMemo(() => new Set(collection.tracks.map((tr) => tr.disc ?? 1)).size > 1, [collection.tracks]);
 
+  // Oynatıcı: platformun 30 sn önizlemeleri (Deezer / Apple / Spotify), albüm sırasıyla
+  const player = usePlayer();
+  const previews = useMemo<PlayerTrack[]>(
+    () =>
+      collection.tracks
+        .filter((tr) => tr.previewUrl)
+        .map((tr) => ({
+          id: `col:${tr.url}`,
+          title: tr.title,
+          artist: tr.artist,
+          album: collection.title,
+          coverUrl: collection.coverUrl,
+          src: tr.previewUrl!,
+          kind: 'preview',
+          sourceUrl: tr.url,
+        })),
+    [collection],
+  );
+  const playingHere = previews.some((p) => p.id === player.current?.id);
+  const playTrack = (track: CollectionTrack) => {
+    const id = `col:${track.url}`;
+    if (player.current?.id === id) return player.toggle();
+    player.playList(previews, previews.findIndex((p) => p.id === id));
+  };
+
   const toItem = (track: CollectionTrack): BatchItem =>
     isAlbum
       ? {
@@ -194,7 +221,7 @@ export function CollectionView({ collection, onReset }: Props) {
             coverUrl={collection.coverUrl}
             alt={t('track.cover', { album: collection.title })}
             spinning={downloads.isRunning}
-            previewUrl={null}
+            preview={null}
           />
         </div>
 
@@ -203,10 +230,36 @@ export function CollectionView({ collection, onReset }: Props) {
             <p className="mb-2 text-sm font-medium text-amber">
               {isAlbum ? t('collection.album') : t('collection.playlist')}
             </p>
-            <h2 className="font-display text-4xl leading-[1.02] font-extrabold tracking-[-0.03em] text-balance break-words sm:text-5xl lg:text-6xl">
+            <h2 className="font-display text-3xl leading-[1.05] font-extrabold tracking-[-0.03em] text-balance hyphens-auto sm:text-4xl xl:text-6xl">
               {collection.title}
             </h2>
-            {collection.artist && <p className="mt-3 text-xl text-dust">{collection.artist}</p>}
+            {collection.artist && (
+              <p className="mt-3 text-xl text-dust">
+                <ArtistLinks names={collection.artist} />
+              </p>
+            )}
+            {previews.length > 0 && (
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => (playingHere ? player.toggle() : player.playList(previews, 0))}
+                  className="inline-flex items-center gap-2 rounded-full bg-paper px-5 py-2.5 font-display font-bold text-night transition hover:scale-[1.03]"
+                >
+                  {playingHere && player.playing ? <AudioLines className="size-4" /> : <Play className="size-4 fill-current" />}
+                  {playingHere && player.playing ? t('player.pause') : t('collection.listen')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => player.playList(previews, 0, { shuffle: true })}
+                  title={t('player.shuffle')}
+                  className="inline-flex items-center gap-2 rounded-full bg-raised px-4 py-2.5 font-semibold text-paper ring-1 ring-rule transition hover:ring-dust"
+                >
+                  <Shuffle className="size-4" />
+                  {t('player.shuffle')}
+                </button>
+                <span className="text-sm text-fade">{t('collection.previewNote', { count: previews.length })}</span>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-end gap-x-10 gap-y-3">
@@ -229,7 +282,7 @@ export function CollectionView({ collection, onReset }: Props) {
                 type="button"
                 onClick={downloadSelected}
                 disabled={pending.length === 0 || downloads.bulkRunning}
-                className="inline-flex h-[62px] items-center gap-2.5 rounded-xl bg-amber px-7 font-display text-lg font-bold text-night transition hover:bg-amber-hi disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-[62px] items-center gap-2.5 rounded-xl bg-amber px-7 font-display text-lg font-bold text-on-accent transition hover:bg-amber-hi disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {downloads.bulkRunning ? <Loader2 className="size-5 animate-spin" /> : <Download className="size-5" strokeWidth={2.5} />}
                 {downloads.bulkRunning
@@ -350,13 +403,38 @@ export function CollectionView({ collection, onReset }: Props) {
                   aria-label={track.title}
                   className="size-4 accent-[var(--color-amber)]"
                 />
-                <span className="text-right text-sm text-fade tabular-nums">
-                  {multiDisc && track.disc ? `${track.disc}.` : ''}
-                  {track.position}
-                </span>
+                {(() => {
+                  const id = `col:${track.url}`;
+                  const active = player.current?.id === id;
+                  const number = (
+                    <>
+                      {multiDisc && track.disc ? `${track.disc}.` : ''}
+                      {track.position}
+                    </>
+                  );
+                  if (!track.previewUrl) return <span className="text-right text-sm text-fade tabular-nums">{number}</span>;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => playTrack(track)}
+                      title={active && player.playing ? t('player.pause') : t('track.previewPlay')}
+                      aria-label={`${active && player.playing ? t('player.pause') : t('player.play')}: ${track.title}`}
+                      className={clsx('flex h-7 items-center justify-end text-sm tabular-nums', active ? 'text-amber' : 'text-fade')}
+                    >
+                      {active && player.playing ? (
+                        <AudioLines className="size-4" />
+                      ) : (
+                        <>
+                          <span className="group-hover:hidden">{number}</span>
+                          <Play className="hidden size-4 fill-current text-paper group-hover:block" />
+                        </>
+                      )}
+                    </button>
+                  );
+                })()}
                 <span className="min-w-0">
-                  <span className="block truncate text-paper">{track.title}</span>
-                  {showArtist && <span className="block truncate text-sm text-dust">{track.artist}</span>}
+                  <span className={clsx('block truncate', player.current?.id === `col:${track.url}` ? 'text-amber' : 'text-paper')}>{track.title}</span>
+                  {showArtist && <ArtistLinks names={track.artist} className="block truncate text-sm text-dust" />}
                 </span>
                 <span className="hidden text-sm text-dust tabular-nums sm:block">{formatDuration(track.duration)}</span>
                 <span className="flex justify-end">

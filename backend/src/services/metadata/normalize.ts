@@ -62,6 +62,7 @@ export function mergeMetadata(
       : primary.coverUrl ?? secondary.coverUrl,
     isrc: primary.isrc ?? secondary.isrc,
     duration: primary.duration ?? secondary.duration,
+    genre: primary.genre ?? secondary.genre,
   };
 }
 
@@ -75,9 +76,10 @@ export function finalizeMetadata(m: TrackMetadata): TrackMetadata {
     coverUrl: cleanString(m.coverUrl),
     isrc: normalizeIsrc(m.isrc),
     duration: typeof m.duration === 'number' && m.duration > 0 ? Math.round(m.duration) : null,
+    genre: cleanString(m.genre),
   };
 }
 
 export function hasMissingFields(m: TrackMetadata): boolean {
-  return !m.isrc || !m.album || !m.releaseDate || !m.coverUrl || !m.duration;
+  return !m.isrc || !m.album || !m.releaseDate || !m.coverUrl || !m.duration || !m.genre;
 }

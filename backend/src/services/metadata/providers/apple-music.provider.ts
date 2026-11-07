@@ -16,6 +16,8 @@ interface AppleSongAttributes {
   durationInMillis?: number;
   isrc?: string;
   artwork?: { url: string; width?: number; height?: number };
+  genreNames?: string[];
+  previews?: { url: string }[];
 }
 
 interface AppleSongsResponse {
@@ -51,6 +53,8 @@ interface ITunesLookupResponse {
     releaseDate?: string;
     artworkUrl100?: string;
     trackTimeMillis?: number;
+    previewUrl?: string;
+    primaryGenreName?: string;
   }[];
 }
 
@@ -114,6 +118,7 @@ export class AppleMusicProvider implements MetadataProvider {
       coverUrl: a.artwork?.url.replace('{w}', String(size)).replace('{h}', String(size)) ?? null,
       isrc: a.isrc ?? null,
       duration: msToSeconds(a.durationInMillis),
+      genre: a.genreNames?.find((g) => g !== 'Music') ?? null,
     };
   }
 
@@ -210,6 +215,7 @@ export class AppleMusicProvider implements MetadataProvider {
         artist: s.artistName ?? album.artistName ?? '',
         duration: msToSeconds(s.trackTimeMillis),
         isrc: null,
+        previewUrl: s.previewUrl ?? null,
         url: `https://music.apple.com/${storefront}/album/${id}?i=${s.trackId}`,
       })),
     };
@@ -260,6 +266,7 @@ export class AppleMusicProvider implements MetadataProvider {
           artist: s.attributes!.artistName,
           duration: msToSeconds(s.attributes!.durationInMillis),
           isrc: s.attributes!.isrc ?? null,
+          previewUrl: s.attributes!.previews?.[0]?.url ?? null,
           url: `https://music.apple.com/${storefront}/song/${s.id}`,
         })),
     };
@@ -292,6 +299,7 @@ export class AppleMusicProvider implements MetadataProvider {
       coverUrl: song.artworkUrl100?.replace(/\/\d+x\d+bb\./, `/${COVER_SIZE}x${COVER_SIZE}bb.`) ?? null,
       isrc: null, // iTunes API ISRC döndürmez → servis Deezer'dan tamamlar
       duration: msToSeconds(song.trackTimeMillis),
+      genre: song.primaryGenreName ?? null,
     };
   }
 }

@@ -8,6 +8,11 @@ import { finalizeMetadata } from '../services/metadata/normalize.js';
 import { historyService } from '../services/history.service.js';
 import { resolverService } from '../services/resolver.service.js';
 import { searchService } from '../services/search.service.js';
+import { COUNTRIES, discoverService, GENRES } from '../services/discover.service.js';
+import { artistService } from '../services/artist.service.js';
+import { freshDeezerPreview } from '../services/metadata/deezer-preview.js';
+import { libraryService } from '../services/library.service.js';
+import { lyricsService } from '../services/lyrics/lyrics.service.js';
 import { HttpError } from '../utils/http-error.js';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +30,7 @@ const metadataSchema = z.object({
   coverUrl: z.string().url().max(2048).nullable().default(null),
   isrc: z.string().max(20).nullable().default(null),
   duration: z.number().int().positive().max(4 * 60 * 60).nullable().default(null),
+  genre: z.string().max(100).nullable().default(null),
 });
 
 const parseBody = z.object({ url: urlField });
@@ -71,10 +77,10 @@ const searchBody = z.object({
 });
 
 function assertSupported(url: string): void {
-  if (!metadataService.detectPlatform(url)) {
+  if (!metadataService.isSupportedUrl(url)) {
     throw new MetadataError(
       'UNSUPPORTED_PLATFORM',
-      'Desteklenmeyen link. Spotify, Apple Music, Deezer veya YouTube Music linki girin.',
+      'Desteklenmeyen link. Spotify, Apple Music, Deezer, YouTube Music veya Amazon Music linki girin.',
     );
   }
 }
@@ -273,6 +279,136 @@ apiRouter.post('/download/:id/retry', (req, res) => {
   const job = jobsService.retry(id);
   if (!job) throw new HttpError(409, 'NOT_RETRYABLE', 'Yalnızca başarısız ya da iptal edilmiş indirmeler yeniden denenebilir');
   res.status(202).json(job);
+});
+
+// --- Keşfet ----------------------------------------------------------------
+
+const discoverQuery = z.object({
+  genre: z.coerce.number().int().refine((id) => GENRES.some((g) => g.id === id), 'Bilinmeyen tür').default(0),
+  country: z.enum(COUNTRIES).default('tr'),
+});
+
+apiRouter.get('/discover/genres', (_req, res) => {
+  res.json({ genres: GENRES, countries: COUNTRIES });
+});
+
+apiRouter.get('/discover', async (req, res) => {
+  const { genre, country } = discoverQuery.parse(req.query);
+  res.set('Cache-Control', 'private, max-age=600');
+  res.json(await discoverService.genre(genre, country));
+});
+
+const artistParams = z.object({ id: z.string().regex(/^[0-9]{1,15}$/) });
+
+// --- Önizleme (Deezer imzalı linkleri ~15 dk'da geçersiz olur) -------------
+
+apiRouter.get('/preview/deezer/:id', async (req, res) => {
+  const { id } = artistParams.parse(req.params);
+  const url = await freshDeezerPreview(id);
+  if (!url) throw new HttpError(404, 'NOT_FOUND', 'Önizleme yok');
+  res.set('Cache-Control', 'private, max-age=300');
+  res.redirect(302, url);
+});
+
+// --- Sanatçı profili --------------------------------------------------------
+
+const artistFind = z.object({ name: z.string().trim().min(1).max(200) });
+
+/** Ada göre sanatçı (tıklanan sanatçı adından profile) */
+apiRouter.get('/artist/find', async (req, res) => {
+  const { name } = artistFind.parse(req.query);
+  res.json({ artist: await artistService.find(name) });
+});
+
+apiRouter.get('/artist/:id', async (req, res) => {
+  const { id } = artistParams.parse(req.params);
+  res.set('Cache-Control', 'private, max-age=300');
+  res.json(await artistService.profile(id));
+});
+
+// --- Kütüphane ---------------------------------------------------------------
+
+const libraryParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/) });
+
+apiRouter.get('/library', (_req, res) => {
+  res.json(libraryService.list());
+});
+
+apiRouter.post('/library/rescan', async (_req, res) => {
+  res.json(await libraryService.rescan());
+});
+
+/** Dosyayı oynatıcıya akıtır (Range desteğiyle ileri / geri sarılabilir) */
+apiRouter.get('/library/tracks/:id/stream', (req, res, next) => {
+  const { id } = libraryParams.parse(req.params);
+  const file = libraryService.filePath(id);
+  if (!file) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  res.sendFile(file, { dotfiles: 'allow', headers: { 'Cache-Control': 'no-cache' } }, (err) => {
+    if (err && !res.headersSent) next(err);
+  });
+});
+
+apiRouter.get('/library/tracks/:id/cover', async (req, res, next) => {
+  const { id } = libraryParams.parse(req.params);
+  const cover = await libraryService.coverPath(id);
+  if (cover) {
+    res.sendFile(cover, { dotfiles: 'allow', maxAge: '7d' }, (err) => {
+      if (err && !res.headersSent) next(err);
+    });
+    return;
+  }
+  const remote = libraryService.coverUrl(id);
+  if (remote?.startsWith('https://')) return res.redirect(302, remote);
+  throw new HttpError(404, 'NOT_FOUND', 'Kapak yok');
+});
+
+/** Oynatıcı: dosyadaki sözler, yoksa LRCLib */
+apiRouter.get('/library/tracks/:id/lyrics', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  const file = libraryService.filePath(id);
+  const track = libraryService.track(id);
+  if (!file || !track) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  const lyrics = await lyricsService.forFile(file, {
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    duration: track.duration,
+  });
+  res.json({ lyrics });
+});
+
+/** Sözleri bulup dosyaya gömer (eski indirmeler için) */
+apiRouter.post('/library/tracks/:id/lyrics', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  const file = libraryService.filePath(id);
+  const track = libraryService.track(id);
+  if (!file || !track) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  const result = await lyricsService.fetchAndEmbed(
+    file,
+    { title: track.title, artist: track.artist, album: track.album, duration: track.duration },
+    { force: true },
+  );
+  if (result.status === 'embedded') await libraryService.touch(id);
+  res.json(result);
+});
+
+const lyricsQuery = z.object({
+  title: z.string().trim().min(1).max(300),
+  artist: z.string().trim().min(1).max(300),
+  album: z.string().trim().max(300).optional(),
+  duration: z.coerce.number().positive().max(7200).optional(),
+});
+
+/** Herhangi bir şarkının sözleri (LRCLib); bulunamazsa { lyrics: null } */
+apiRouter.get('/lyrics', async (req, res) => {
+  const q = lyricsQuery.parse(req.query);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.json({ lyrics: await lyricsService.find(q) });
+});
+
+apiRouter.delete('/library/tracks/:id', (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  res.json({ removed: libraryService.remove(id) });
 });
 
 // --- İndirme geçmişi (ana sayfa) --------------------------------------------

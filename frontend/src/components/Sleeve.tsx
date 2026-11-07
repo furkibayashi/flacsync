@@ -1,37 +1,18 @@
 import clsx from 'clsx';
 import { Disc3, Pause, Play } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
+import { useIsPlaying, usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 
-function PreviewButton({ url }: { url: string }) {
+function PreviewButton({ track }: { track: PlayerTrack }) {
   const { t } = useI18n();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
-
-  useEffect(() => {
-    const audio = new Audio(url);
-    audio.volume = 0.8;
-    const onPlay = () => setPlaying(true);
-    const onStop = () => setPlaying(false);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onStop);
-    audio.addEventListener('ended', onStop);
-    audioRef.current = audio;
-    return () => {
-      audio.pause();
-      audioRef.current = null;
-    };
-  }, [url]);
+  const { toggleTrack } = usePlayer();
+  const { playing } = useIsPlaying(track.id);
 
   return (
     <button
       type="button"
-      onClick={() => {
-        const audio = audioRef.current;
-        if (!audio) return;
-        if (audio.paused) void audio.play().catch(() => setPlaying(false));
-        else audio.pause();
-      }}
+      onClick={() => toggleTrack(track)}
       aria-label={playing ? t('track.previewPause') : t('track.previewPlay')}
       title={playing ? t('track.previewPause') : t('track.previewPlay')}
       className="absolute bottom-3 left-3 z-20 grid size-11 place-items-center rounded-full bg-paper text-night shadow-lg shadow-black/40 transition hover:scale-105"
@@ -46,7 +27,8 @@ interface Props {
   alt: string;
   /** İndirme sürerken plak döner */
   spinning: boolean;
-  previewUrl: string | null;
+  /** 30 sn önizleme; oynatıcıda çalınır */
+  preview: PlayerTrack | null;
 }
 
 /**
@@ -54,7 +36,7 @@ interface Props {
  * şarkı yüklenince plak kapaktan çıkar, indirme boyunca döner.
  * Her yeni şarkıda `key` ile yeniden mount edilir ki çıkış animasyonu tekrar oynasın.
  */
-export function Sleeve({ coverUrl, alt, spinning, previewUrl }: Props) {
+export function Sleeve({ coverUrl, alt, spinning, preview }: Props) {
   const [failed, setFailed] = useState(false);
   const [out, setOut] = useState(false);
 
@@ -95,7 +77,7 @@ export function Sleeve({ coverUrl, alt, spinning, previewUrl }: Props) {
             <Disc3 className="size-1/3" strokeWidth={1.25} />
           </div>
         )}
-        {previewUrl && <PreviewButton url={previewUrl} />}
+        {preview && <PreviewButton track={preview} />}
       </div>
     </div>
   );

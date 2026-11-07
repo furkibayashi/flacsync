@@ -47,6 +47,11 @@ const EnvSchema = z.object({
 
   // --- Diğer metadata kaynakları ---
   ODESLI_API_KEY: optionalString,
+
+  // --- Şarkı sözleri (LRCLib) ---
+  /** İndirilen dosyalara zaman damgalı sözler gömülsün mü */
+  LYRICS_ENABLED: bool(true),
+  LRCLIB_BASE_URL: z.string().url().default('https://lrclib.net'),
   MUSICBRAINZ_USER_AGENT: optionalString,
 
   // --- Eşleştirme ---
@@ -61,6 +66,10 @@ const EnvSchema = z.object({
   YTDLP_CONCURRENCY: z.coerce.number().int().positive().default(4),
   /** İndirme geçmişi (ana sayfa) ve kalıcı veriler */
   DATA_DIR: z.string().default('./storage/data'),
+  /** Kütüphane: indirilen şarkıların durduğu klasör (uygulamadan dinlenir) */
+  LIBRARY_DIR: z.string().default('./storage/library'),
+  /** Tamamlanan dosyalar kütüphaneye kopyalansın mı (masaüstünde dosyalar zaten oraya kaydedilir → false) */
+  LIBRARY_COPY: bool(true),
 
   // --- İndirme / dönüştürme ---
   DOWNLOAD_DIR: z.string().default('./storage/downloads'),

@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "productName": "FlacSync",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "FlacSync masaüstü uygulaması",
   "author": "FlacSync contributors",
@@ -92,17 +92,27 @@
       "language": "1055",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "FlacSync-Setup-${version}.exe"
+      "artifactName": "FlacSync-Setup-${version}.exe",
+      "differentialPackage": false
     },
     "portable": {
       "artifactName": "FlacSync-${version}.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "furkibayashi",
+        "repo": "flacsync",
+        "releaseType": "release"
+      }
+    ]
   },
   "devDependencies": {
     "@types/yauzl": "^3.4.0",
     "electron": "45.2.3",
     "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
-    "yauzl": "^3.4.0"
+    "yauzl": "^3.4.0",
+    "electron-updater": "^6.8.11"
   }
 }

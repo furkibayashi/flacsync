@@ -1,5 +1,6 @@
 import { ListMusic } from 'lucide-react';
 import { useI18n } from '../i18n/I18nProvider';
+import { ArtistLinks } from './ArtistLinks';
 import { formatDuration, PLATFORM_LABEL } from '../lib/format';
 import type { AlbumResult, ParseResponse, Platform } from '../types/api';
 import { PlatformTag } from './PlatformTag';
@@ -32,7 +33,9 @@ export function TrackDetails({ track, foundOn, isBestMatch, album, onOpenAlbum }
         <h2 className="font-display text-4xl leading-[1.02] font-extrabold tracking-[-0.03em] text-balance break-words sm:text-5xl lg:text-6xl">
           {metadata.title}
         </h2>
-        <p className="mt-3 text-xl text-dust">{metadata.artist}</p>
+        <p className="mt-3 text-xl text-dust">
+          <ArtistLinks names={metadata.artist} />
+        </p>
       </div>
 
       {facts.length > 0 && (

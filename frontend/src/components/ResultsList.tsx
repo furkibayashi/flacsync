@@ -1,7 +1,9 @@
 import clsx from 'clsx';
-import { Check, ChevronDown, Disc3, ListPlus, Loader2, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { AudioLines, Check, ChevronDown, Disc3, ListPlus, Loader2, Play, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { ArtistLinks } from './ArtistLinks';
 import { formatDuration, PLATFORM_DOT, PLATFORM_LABEL } from '../lib/format';
 import type { OutputFormat, SearchResult } from '../types/api';
 
@@ -59,6 +61,30 @@ export function ResultsList({
 
   const pickedResults = results.filter((r) => picked.has(r.id));
 
+  // Kapağa tıklayınca 30 sn önizleme; sonraki / önceki listedeki diğer önizlemelere geçer
+  const player = usePlayer();
+  const previews = useMemo<PlayerTrack[]>(
+    () =>
+      results
+        .filter((r) => r.previewUrl)
+        .map((r) => ({
+          id: `search:${r.id}`,
+          title: r.title,
+          artist: r.artist,
+          album: r.album,
+          coverUrl: r.coverUrl,
+          src: r.previewUrl!,
+          kind: 'preview',
+          sourceUrl: r.url,
+        })),
+    [results],
+  );
+  const playPreview = (r: SearchResult) => {
+    const id = `search:${r.id}`;
+    if (player.current?.id === id) return player.toggle();
+    player.playList(previews, previews.findIndex((p) => p.id === id));
+  };
+
   return (
     <section aria-labelledby="other-results" className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -89,7 +115,15 @@ export function ResultsList({
                 aria-label={t('results.pick', { title: r.title })}
                 className="size-4 accent-[var(--color-amber)]"
               />
-              <button type="button" onClick={() => onSelect(r)} tabIndex={-1} aria-hidden className="relative size-11 overflow-hidden rounded bg-raised">
+              <button
+                type="button"
+                onClick={() => (r.previewUrl ? playPreview(r) : onSelect(r))}
+                title={r.previewUrl ? t('track.previewPlay') : undefined}
+                aria-label={r.previewUrl ? `${t('track.previewPlay')}: ${r.title}` : undefined}
+                tabIndex={r.previewUrl ? 0 : -1}
+                aria-hidden={r.previewUrl ? undefined : true}
+                className="group/cover relative size-11 overflow-hidden rounded bg-raised"
+              >
                 {r.coverUrl ? (
                   <img src={r.coverUrl} alt="" loading="lazy" className="size-full object-cover" />
                 ) : (
@@ -98,22 +132,40 @@ export function ResultsList({
                 <span className="absolute top-0.5 left-0.5 rounded bg-night/80 px-1 text-[10px] font-bold text-dust tabular-nums">
                   {index + 1}
                 </span>
+                {r.previewUrl && (
+                  <span
+                    className={clsx(
+                      'absolute inset-0 grid place-items-center bg-black/55 text-white transition',
+                      player.current?.id === `search:${r.id}` ? 'opacity-100' : 'opacity-0 group-hover/cover:opacity-100 group-focus-visible/cover:opacity-100',
+                    )}
+                  >
+                    {player.current?.id === `search:${r.id}` && player.playing ? (
+                      <AudioLines className="size-5 text-amber" />
+                    ) : (
+                      <Play className="size-4 fill-current" />
+                    )}
+                  </span>
+                )}
               </button>
-              <button
-                type="button"
-                onClick={() => onSelect(r)}
-                aria-current={selected ? 'true' : undefined}
-                aria-label={t('results.choose', { title: r.title, artist: r.artist })}
-                className="min-w-0 text-left"
-              >
-                <span className={clsx('block truncate font-medium', selected ? 'text-amber' : 'text-paper group-hover:text-paper')}>
+              {/* Başlık şarkıyı açar; sanatçı adları ayrı bağlantı (iç içe düğme olmasın diye) */}
+              <div className="min-w-0 cursor-pointer" onClick={() => onSelect(r)}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(r);
+                  }}
+                  aria-current={selected ? 'true' : undefined}
+                  aria-label={t('results.choose', { title: r.title, artist: r.artist })}
+                  className={clsx('block max-w-full truncate text-left font-medium', selected ? 'text-amber' : 'text-paper group-hover:text-paper')}
+                >
                   {r.title}
-                </span>
+                </button>
                 <span className="block truncate text-sm text-dust">
-                  {r.artist}
+                  <ArtistLinks names={r.artist} />
                   {r.album && <span className="text-fade">{`, ${r.album}`}</span>}
                 </span>
-              </button>
+              </div>
               <span className="hidden items-center gap-1 sm:flex" title={r.sources.map((s) => PLATFORM_LABEL[s]).join(', ')}>
                 {r.sources.map((s) => (
                   <span key={s} className={clsx('size-2 rounded-full', PLATFORM_DOT[s])} />
@@ -180,7 +232,7 @@ export function ResultsList({
             <button
               type="button"
               onClick={() => add(pickedResults)}
-              className="inline-flex items-center gap-2 rounded-xl bg-amber px-4 py-2 font-display font-bold text-night transition hover:bg-amber-hi"
+              className="inline-flex items-center gap-2 rounded-xl bg-amber px-4 py-2 font-display font-bold text-on-accent transition hover:bg-amber-hi"
             >
               <ListPlus className="size-4" />
               {t('results.addPicked')}

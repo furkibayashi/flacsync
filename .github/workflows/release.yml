@@ -73,6 +73,10 @@ jobs:
           } | Set-Content -Encoding ascii dist-release/SHA256SUMS.txt
           Get-Content dist-release/SHA256SUMS.txt
 
+      # Uygulama içi güncelleme bu dosyayı okur; imzalamadan SONRA üretilmeli (özet değişir)
+      - name: Update manifest (latest.yml)
+        run: node desktop/scripts/update-manifest.mjs dist-release
+
       - name: Publish GitHub Release
         shell: pwsh
         env:

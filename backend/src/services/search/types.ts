@@ -19,6 +19,8 @@ export interface SearchCandidate {
   position: number;
   /** 0-1 popülerlik; bilinmiyorsa null */
   popularity: number | null;
+  /** 30 sn önizleme (oynatıcı) */
+  previewUrl?: string | null;
 }
 
 /** Aynı kaydın farklı platformlardaki sonuçları birleştirilmiş hali. */
@@ -40,6 +42,8 @@ export interface SearchResult {
   score: number;
   /** 0-1 sorguyla eşleşme */
   relevance: number;
+  /** 30 sn önizleme (oynatıcı) */
+  previewUrl: string | null;
 }
 
 /** Tek bir platformun albüm arama sonucu. */

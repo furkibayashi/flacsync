@@ -1,6 +1,10 @@
 import type { AudioFormat, Platform } from '../types/api';
 
-export const PLATFORM_LABEL: Record<Platform, string> = {
+/** Girişte tanınan linkler: indirme platformları + başka platforma çevrilen Amazon Music */
+export type LinkPlatform = Platform | 'amazon-music';
+
+export const PLATFORM_LABEL: Record<LinkPlatform, string> = {
+  'amazon-music': 'Amazon Music',
   spotify: 'Spotify',
   'apple-music': 'Apple Music',
   deezer: 'Deezer',
@@ -8,7 +12,8 @@ export const PLATFORM_LABEL: Record<Platform, string> = {
 };
 
 /** Rozetlerde marka logosu yerine renk noktası kullanılır. */
-export const PLATFORM_DOT: Record<Platform, string> = {
+export const PLATFORM_DOT: Record<LinkPlatform, string> = {
+  'amazon-music': 'bg-[#25d1da]',
   spotify: 'bg-[#1ed760]',
   'apple-music': 'bg-[#fa586a]',
   deezer: 'bg-[#a238ff]',
@@ -23,13 +28,19 @@ const HOSTS: Array<[RegExp, Platform]> = [
 ];
 
 /** Yazarken anlık platform tespiti (sunucu tarafı tespitinin hafif kopyası). */
-export function detectPlatform(input: string): Platform | null {
+export function detectPlatform(input: string): LinkPlatform | null {
   const value = input.trim();
   if (!value) return null;
   if (/^spotify:/i.test(value)) return 'spotify';
   try {
-    const host = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`).hostname;
-    return HOSTS.find(([re]) => re.test(host))?.[1] ?? null;
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    const host = url.hostname;
+    const known = HOSTS.find(([re]) => re.test(host))?.[1];
+    if (known) return known;
+    // Amazon Music (sunucu, aynı kaydın Deezer / Apple linkine çevirir)
+    if (/^music\.amazon\./i.test(host)) return 'amazon-music';
+    if (/(^|\.)amazon\./i.test(host) && /\/(music|dp|gp\/product)\//i.test(url.pathname)) return 'amazon-music';
+    return null;
   } catch {
     return null;
   }

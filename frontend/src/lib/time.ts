@@ -1,6 +1,4 @@
-import type { Lang } from '../i18n/translations';
-
-const LOCALE: Record<Lang, string> = { tr: 'tr-TR', en: 'en-US' };
+import { LANG_LOCALE as LOCALE, type Lang } from '../i18n/translations';
 
 /** "3 dakika önce" / "3 minutes ago" */
 export function relativeTime(iso: string, lang: Lang, now = Date.now()): string {
@@ -14,10 +12,14 @@ export function relativeTime(iso: string, lang: Lang, now = Date.now()): string 
   return new Date(iso).toLocaleDateString(LOCALE[lang], { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** 6778 → "6,8 sn" / "6.8 s" */
+/** 6778 → "6,8 sn" / "6.8 sec" (dilin kendi birim kısaltmasıyla) */
 export function formatSeconds(ms: number, lang: Lang): string {
-  const value = (ms / 1000).toLocaleString(LOCALE[lang], { maximumFractionDigits: ms < 10_000 ? 1 : 0 });
-  return lang === 'tr' ? `${value} sn` : `${value} s`;
+  return new Intl.NumberFormat(LOCALE[lang], {
+    style: 'unit',
+    unit: 'second',
+    unitDisplay: 'short',
+    maximumFractionDigits: ms < 10_000 ? 1 : 0,
+  }).format(ms / 1000);
 }
 
 export function formatNumber(n: number, lang: Lang): string {

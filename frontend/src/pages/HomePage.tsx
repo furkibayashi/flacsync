@@ -36,7 +36,7 @@ function FormatSplit({ mp3, flac }: { mp3: number; flac: number }) {
       <p className="text-sm text-fade">{t('home.formats')}</p>
       <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-rule" aria-hidden>
         <span className="bg-amber" style={{ width: `${(mp3 / total) * 100}%` }} />
-        <span className="bg-[#8c7cf0]" style={{ width: `${(flac / total) * 100}%` }} />
+        <span className="bg-flac" style={{ width: `${(flac / total) * 100}%` }} />
       </div>
       <p className="mt-2 flex justify-between text-xs text-dust tabular-nums">
         <span>
@@ -44,7 +44,7 @@ function FormatSplit({ mp3, flac }: { mp3: number; flac: number }) {
           MP3 {mp3}
         </span>
         <span>
-          <span className="mr-1.5 inline-block size-2 rounded-full bg-[#8c7cf0]" />
+          <span className="mr-1.5 inline-block size-2 rounded-full bg-flac" />
           FLAC {flac}
         </span>
       </p>
@@ -65,7 +65,7 @@ function HistoryCard({ entry, onRemove, onRedownload }: { entry: HistoryEntry; o
         <span
           className={clsx(
             'absolute bottom-1 left-1 rounded px-1 text-[10px] font-bold',
-            entry.format === 'flac' ? 'bg-[#8c7cf0] text-night' : 'bg-amber text-night',
+            entry.format === 'flac' ? 'bg-flac text-on-accent' : 'bg-amber text-on-accent',
           )}
         >
           {entry.format.toUpperCase()}
@@ -175,7 +175,7 @@ export function HomePage({ onNavigate, onSearch }: Props) {
             autoComplete="off"
             className="min-w-0 flex-1 bg-transparent py-2.5 text-lg text-paper placeholder:text-fade focus:outline-none"
           />
-          <button type="submit" disabled={!query.trim()} className="inline-flex h-11 items-center gap-2 rounded-xl bg-paper px-5 font-display font-bold text-night transition hover:bg-white disabled:opacity-40">
+          <button type="submit" disabled={!query.trim()} className="inline-flex h-11 items-center gap-2 rounded-xl bg-paper px-5 font-display font-bold text-night transition hover:bg-paper/85 disabled:opacity-40">
             {t('action.search')}
             <ArrowRight className="size-4" />
           </button>
@@ -225,7 +225,7 @@ export function HomePage({ onNavigate, onSearch }: Props) {
               <p className="font-display text-xl font-bold">{t('home.emptyTitle')}</p>
               <p className="mt-1 text-dust">{t('home.emptyBody')}</p>
             </div>
-            <button type="button" onClick={() => onNavigate('search')} className="rounded-xl bg-amber px-5 py-2.5 font-display font-bold text-night transition hover:bg-amber-hi">
+            <button type="button" onClick={() => onNavigate('search')} className="rounded-xl bg-amber px-5 py-2.5 font-display font-bold text-on-accent transition hover:bg-amber-hi">
               {t('home.emptyCta')}
             </button>
           </div>

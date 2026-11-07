@@ -8,6 +8,7 @@ import {
 import { MetadataError, isNotFound } from '../errors.js';
 import { http, toProviderError } from '../http.js';
 import { joinArtists, MAX_COLLECTION_TRACKS, toYear } from '../normalize.js';
+import { stableDeezerPreview } from '../deezer-preview.js';
 import type { Collection, MetadataProvider, ParsedMusicUrl, TrackMetadata } from '../types.js';
 
 interface DeezerErrorBody {
@@ -57,6 +58,7 @@ interface DeezerCollectionTrack {
   isrc?: string;
   track_position?: number;
   disk_number?: number;
+  preview?: string;
   artist: { name: string };
 }
 
@@ -79,6 +81,7 @@ function toMetadata(track: DeezerTrack): TrackMetadata {
     coverUrl: track.album?.cover_xl ?? track.album?.cover_big ?? null,
     isrc: track.isrc ?? null,
     duration: track.duration ?? null,
+    genre: null,
   };
 }
 
@@ -93,13 +96,32 @@ export class DeezerProvider implements MetadataProvider {
   constructor(private readonly baseUrl: string = env.DEEZER_API_BASE_URL) {}
 
   async getTrack(parsed: ParsedMusicUrl): Promise<TrackMetadata> {
-    return toMetadata(await this.request<DeezerTrack>(`/track/${encodeURIComponent(parsed.id)}`));
+    return this.withGenre(await this.request<DeezerTrack>(`/track/${encodeURIComponent(parsed.id)}`));
+  }
+
+  private readonly albumGenres = new Map<number, string | null>();
+
+  /** Parçanın türü, albümünden gelir (Deezer'da parça türü yok); albüm başına önbellekli. */
+  private async withGenre(track: DeezerTrack): Promise<TrackMetadata> {
+    const meta = toMetadata(track);
+    const albumId = track.album?.id;
+    if (!albumId) return meta;
+    if (!this.albumGenres.has(albumId)) {
+      try {
+        const album = await this.request<{ genres?: { data?: { name: string }[] } }>(`/album/${albumId}`);
+        this.albumGenres.set(albumId, album.genres?.data?.[0]?.name ?? null);
+      } catch {
+        this.albumGenres.set(albumId, null);
+      }
+      if (this.albumGenres.size > 2000) this.albumGenres.clear();
+    }
+    return { ...meta, genre: this.albumGenres.get(albumId) ?? null };
   }
 
   /** ISRC ile birebir arama. Bulunamazsa `null`. */
   async getByIsrc(isrc: string): Promise<TrackMetadata | null> {
     try {
-      return toMetadata(await this.request<DeezerTrack>(`/track/isrc:${encodeURIComponent(isrc)}`));
+      return await this.withGenre(await this.request<DeezerTrack>(`/track/isrc:${encodeURIComponent(isrc)}`));
     } catch (err) {
       if (isNotFound(err)) return null;
       throw err;
@@ -158,7 +180,7 @@ export class DeezerProvider implements MetadataProvider {
 
       let first: TrackMetadata | null = null;
       for (const { track } of shortlist) {
-        const full = toMetadata(await this.request<DeezerTrack>(`/track/${track.id}`));
+        const full = await this.withGenre(await this.request<DeezerTrack>(`/track/${track.id}`));
         if (!target.year || full.releaseDate === target.year) return full;
         first ??= full;
       }
@@ -207,6 +229,7 @@ export class DeezerProvider implements MetadataProvider {
         duration: t.duration ?? null,
         isrc: t.isrc ?? null,
         url: t.link ?? `https://www.deezer.com/track/${t.id}`,
+        previewUrl: stableDeezerPreview(t.id, t.preview),
       })),
     };
   }

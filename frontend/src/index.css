@@ -12,6 +12,11 @@
   --color-amber: #f2b544;
   --color-amber-hi: #ffc95e;
   --color-danger: #f07167;
+  /* Vurgu (amber) zeminli düğmelerdeki yazı */
+  --color-on-accent: #17151f;
+  --color-flac: #8c7cf0;
+  --color-ok: #6fd39a;
+  --color-sidebar: #1b1925;
 
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -34,10 +39,92 @@
   --art: 132 108 204;
 }
 
+/* --- Temalar (Ayarlar → Görünüm). Varsayılan "Gece" yukarıdaki @theme değerleridir. --- */
+
+:root[data-theme="oled"] {
+  --color-night: #000000;
+  --color-panel: #0c0c0e;
+  --color-raised: #17171b;
+  --color-rule: #29292f;
+  --color-paper: #f2f2f4;
+  --color-dust: #a2a2ab;
+  --color-fade: #6c6c75;
+  --color-sidebar: #050506;
+  --art: 90 90 110;
+}
+
+:root[data-theme="ocean"] {
+  --color-night: #0c1720;
+  --color-panel: #12212c;
+  --color-raised: #192c39;
+  --color-rule: #274050;
+  --color-paper: #e4f0f5;
+  --color-dust: #95b1bf;
+  --color-fade: #678593;
+  --color-amber: #4fd1c5;
+  --color-amber-hi: #7ee3d9;
+  --color-on-accent: #04201f;
+  --color-flac: #7aa2ff;
+  --color-sidebar: #0e1c26;
+  --art: 60 140 170;
+}
+
+:root[data-theme="sakura"] {
+  --color-night: #1c1317;
+  --color-panel: #261a20;
+  --color-raised: #32232a;
+  --color-rule: #47323c;
+  --color-paper: #f8e9ef;
+  --color-dust: #c6a4b2;
+  --color-fade: #92707e;
+  --color-amber: #ff8fb1;
+  --color-amber-hi: #ffb1c8;
+  --color-on-accent: #2a0e19;
+  --color-flac: #b9a0ff;
+  --color-sidebar: #21161b;
+  --art: 200 110 150;
+}
+
+:root[data-theme="forest"] {
+  --color-night: #111914;
+  --color-panel: #17221b;
+  --color-raised: #203026;
+  --color-rule: #2e4236;
+  --color-paper: #e7f2e9;
+  --color-dust: #a1baa7;
+  --color-fade: #718878;
+  --color-amber: #9bd36a;
+  --color-amber-hi: #b6e68b;
+  --color-on-accent: #122009;
+  --color-flac: #79c3df;
+  --color-sidebar: #131d17;
+  --art: 90 150 100;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-night: #f5f2ec;
+  --color-panel: #ffffff;
+  --color-raised: #ebe6dd;
+  --color-rule: #d9d1c4;
+  --color-paper: #1d1a22;
+  --color-dust: #5b5466;
+  --color-fade: #8a8394;
+  --color-amber: #c27400;
+  --color-amber-hi: #db8600;
+  --color-on-accent: #ffffff;
+  --color-danger: #c8443a;
+  --color-flac: #6a58d6;
+  --color-ok: #23a061;
+  --color-sidebar: #eee9e1;
+  --art: 214 170 120;
+}
+
 html,
 body {
   background-color: var(--color-night);
   color: var(--color-paper);
+  transition: background-color 0.25s ease, color 0.25s ease;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -74,4 +161,62 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Oynatıcı / ayarlar kaydırıcısı: dolu kısım vurgu renginde */
+.fs-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+  --fill: 0%;
+}
+.fs-range:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.fs-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--color-paper) var(--fill), var(--color-rule) var(--fill));
+}
+.fs-range:hover::-webkit-slider-runnable-track,
+.fs-range:focus-visible::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--color-amber) var(--fill), var(--color-rule) var(--fill));
+}
+.fs-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--color-paper);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.fs-range:hover::-webkit-slider-thumb,
+.fs-range:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+.fs-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-rule);
+}
+.fs-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-paper);
+}
+.fs-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-paper);
+}
+.fs-range:focus-visible {
+  outline-offset: 2px;
 }

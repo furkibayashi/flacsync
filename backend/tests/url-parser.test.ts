@@ -78,3 +78,34 @@ describe('parseMusicUrl', () => {
     await expect(parseMusicUrl('file:///etc/passwd')).rejects.toMatchObject({ code: 'INVALID_URL' });
   });
 });
+
+describe('Amazon Music linkleri', () => {
+  it('müzik linklerini tanır, alışveriş linklerini tanımaz', async () => {
+    const { isAmazonMusicUrl } = await import('../src/services/metadata/amazon.js');
+    expect(isAmazonMusicUrl('https://music.amazon.com/albums/B00CRMWMZ0')).toBe(true);
+    expect(isAmazonMusicUrl('music.amazon.de/tracks/B00CRMWN4Y')).toBe(true);
+    expect(isAmazonMusicUrl('https://www.amazon.com/dp/B00CRMWMZ0')).toBe(true);
+    expect(isAmazonMusicUrl('https://www.amazon.com/s?k=kulaklik')).toBe(false);
+    expect(isAmazonMusicUrl('https://open.spotify.com/track/x')).toBe(false);
+  });
+
+  it('albüm, albüm içindeki şarkı, şarkı ve çalma listesi linklerini ayrıştırır', async () => {
+    const { parseAmazonUrl } = await import('../src/services/metadata/amazon.js');
+    expect(parseAmazonUrl('https://music.amazon.com/albums/B00CRMWMZ0')).toMatchObject({ kind: 'album', asin: 'B00CRMWMZ0' });
+    expect(parseAmazonUrl('https://music.amazon.com/albums/B00CRMWMZ0?trackAsin=B00CRMWN4Y')).toMatchObject({
+      kind: 'track',
+      asin: 'B00CRMWMZ0',
+      trackAsin: 'B00CRMWN4Y',
+    });
+    expect(parseAmazonUrl('https://music.amazon.com/tracks/B00CRMWN4Y')).toMatchObject({ kind: 'track', asin: 'B00CRMWN4Y' });
+    expect(parseAmazonUrl('https://music.amazon.com/playlists/B07XYZ1234')).toMatchObject({ kind: 'playlist' });
+    expect(parseAmazonUrl('https://www.amazon.com/music/player/albums/B00CRMWMZ0')).toMatchObject({ kind: 'album', asin: 'B00CRMWMZ0' });
+  });
+
+  it('anahtarsız şarkı linkinde açıklayıcı hata, albümde MusicBrainz yolu', async () => {
+    const { AmazonMusicResolver } = await import('../src/services/metadata/amazon.js');
+    const resolver = new AmazonMusicResolver(async () => null, undefined);
+    await expect(resolver.resolve('https://music.amazon.com/tracks/B00CRMWN4Y')).rejects.toMatchObject({ code: 'AMAZON_TRACK_NEEDS_KEY' });
+    await expect(resolver.resolve('https://music.amazon.com/playlists/B07XYZ1234')).rejects.toMatchObject({ code: 'UNSUPPORTED_RESOURCE' });
+  });
+});

@@ -15,3 +15,4 @@ desktop/build/
 vendor/
 backend/storage/data/
 backend/storage/bench-*/
+backend/storage/library/

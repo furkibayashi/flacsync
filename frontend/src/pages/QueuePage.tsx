@@ -157,7 +157,7 @@ export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }
           <button
             type="button"
             onClick={() => onNavigate('search')}
-            className="rounded-xl bg-amber px-5 py-2.5 font-display font-bold text-night transition hover:bg-amber-hi"
+            className="rounded-xl bg-amber px-5 py-2.5 font-display font-bold text-on-accent transition hover:bg-amber-hi"
           >
             {t('nav.search')}
           </button>

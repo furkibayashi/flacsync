@@ -7,6 +7,9 @@ import { runFfmpeg } from '../utils/ffmpeg.js';
 import { logger } from '../utils/logger.js';
 import { ytDlpProcess } from '../utils/ytdlp.js';
 import { fetchCoverAsJpeg } from './download/cover.js';
+import { lyricsService } from './lyrics/lyrics.service.js';
+import { id3LyricsTags, vorbisLyricsArgs } from './lyrics/tagger.js';
+import type { Lyrics } from './lyrics/types.js';
 import type { TrackMetadata } from './metadata/types.js';
 import type { ResolvedSource } from './resolver/types.js';
 
@@ -37,6 +40,8 @@ export interface DownloadRequest {
   extras?: TagExtras;
   /** İptal: yt-dlp / ffmpeg süreçleri durdurulur */
   signal?: AbortSignal;
+  /** false: söz aranmaz (varsayılan LYRICS_ENABLED) */
+  lyrics?: boolean;
   onProgress?: (progress: DownloadProgress) => void;
 }
 
@@ -48,6 +53,8 @@ export interface DownloadedFile {
   format: OutputFormat;
   /** Kapak gömülebildi mi */
   hasCover: boolean;
+  /** Gömülen sözler: zaman damgalı, düz ya da yok */
+  lyrics: 'synced' | 'plain' | null;
 }
 
 export class DownloadError extends Error {
@@ -90,6 +97,7 @@ export function buildId3Tags(
     ...(meta.album ? { album: meta.album } : {}),
     ...(meta.releaseDate ? { year: meta.releaseDate } : {}),
     ...(meta.isrc ? { ISRC: meta.isrc } : {}),
+    ...(meta.genre ? { genre: meta.genre } : {}),
     ...(meta.duration ? { length: String(meta.duration * 1000) } : {}),
     comment: {
       language: 'eng',
@@ -119,6 +127,7 @@ export function buildVorbisArgs(meta: TrackMetadata, source: ResolvedSource, ext
     disc: extras.discNumber ? String(extras.discNumber) : null,
     album: meta.album,
     date: meta.releaseDate,
+    genre: meta.genre,
     ISRC: meta.isrc,
     comment: `Source: YouTube Music ${source.videoId} (${source.format.codec} ${source.format.bitrateKbps ?? '?'} kbps, lossy origin)`,
   };
@@ -163,12 +172,23 @@ export class DownloaderService {
           })
         : Promise.resolve(null);
 
+      // Sözler de paralel aranır; bulunamazsa / ağ hatasında sözsüz devam edilir (hata fırlatmaz)
+      const lyricsPromise: Promise<Lyrics | null> =
+        lyricsService.isEnabled && req.lyrics !== false
+          ? lyricsService.find({
+              title: metadata.title,
+              artist: metadata.artist,
+              album: metadata.album,
+              duration: metadata.duration,
+            })
+          : Promise.resolve(null);
+
       // 1) İndirme
       report('downloading', 0);
       rawAudio = await this.fetchAudio(id, source, (f) => report('downloading', f), req.signal);
       report('downloading', 1);
 
-      const cover = await coverPromise;
+      const [cover, lyrics] = await Promise.all([coverPromise, lyricsPromise]);
 
       // 2) Dönüştürme (+ FLAC için etiket/kapak)
       report('converting', 0);
@@ -176,7 +196,10 @@ export class DownloaderService {
       await runFfmpeg({
         inputs: format === 'flac' && cover ? [rawAudio, coverPath] : [rawAudio],
         output: outputPath,
-        args: this.conversionArgs(format, metadata, source, Boolean(cover), extras),
+        args: [
+          ...this.conversionArgs(format, metadata, source, Boolean(cover), extras),
+          ...(format === 'flac' && lyrics ? vorbisLyricsArgs(lyrics) : []),
+        ],
         durationSec: metadata.duration,
         onProgress: (f) => report('converting', f),
         signal: req.signal,
@@ -186,13 +209,15 @@ export class DownloaderService {
       // 3) Etiketleme (MP3)
       report('tagging', 0);
       if (format === 'mp3') {
-        const result = NodeID3.write(buildId3Tags(metadata, source, cover, extras), outputPath);
+        const tags = { ...buildId3Tags(metadata, source, cover, extras), ...(lyrics ? id3LyricsTags(lyrics) : {}) };
+        const result = NodeID3.write(tags, outputPath);
         if (result instanceof Error) throw new DownloadError(`ID3 etiketleri yazılamadı: ${result.message}`, { cause: result });
       }
       report('tagging', 1);
 
       const { size } = await stat(outputPath);
-      return { path: outputPath, fileName, size, mimeType: MIME[format], format, hasCover: Boolean(cover) };
+      const lyricsKind: DownloadedFile['lyrics'] = lyrics?.synced ? 'synced' : lyrics?.plain ? 'plain' : null;
+      return { path: outputPath, fileName, size, mimeType: MIME[format], format, hasCover: Boolean(cover), lyrics: lyricsKind };
     } catch (err) {
       await rm(outDir, { recursive: true, force: true });
       throw err instanceof DownloadError ? err : new DownloadError((err as Error).message, { cause: err });

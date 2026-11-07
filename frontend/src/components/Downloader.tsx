@@ -365,7 +365,19 @@ export function Downloader({ onArtColor, request, onNavigate }: Props) {
               coverUrl={track.metadata.coverUrl}
               alt={t('track.cover', { album: track.metadata.album ?? track.metadata.title })}
               spinning={isRunning}
-              previewUrl={source.status === 'ready' ? source.data.previewUrl : null}
+              preview={
+                source.status === 'ready' && source.data.previewUrl
+                  ? {
+                      id: `preview:${trackUrl ?? track.metadata.title}`,
+                      title: track.metadata.title,
+                      artist: track.metadata.artist,
+                      album: track.metadata.album,
+                      coverUrl: track.metadata.coverUrl,
+                      src: source.data.previewUrl,
+                      kind: 'preview',
+                    }
+                  : null
+              }
             />
           </div>
 

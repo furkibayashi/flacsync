@@ -65,7 +65,7 @@ export function JobRow({ job, compact = false }: { job: DownloadJob; compact?: b
           <Disc3 className={clsx('m-2.5 size-6 text-fade', active && 'animate-spin [animation-duration:3s]')} />
         )}
         {done && (
-          <span className="absolute right-0.5 bottom-0.5 grid size-4 place-items-center rounded-full bg-amber text-night">
+          <span className="absolute right-0.5 bottom-0.5 grid size-4 place-items-center rounded-full bg-amber text-on-accent">
             <Check className="size-3" strokeWidth={3.5} />
           </span>
         )}

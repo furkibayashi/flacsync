@@ -1,7 +1,14 @@
 import type {
   AlbumResult,
+  ArtistProfile,
+  ArtistSummary,
+  Lyrics,
+  LyricsEmbedResult,
   Batch,
   BatchItem,
+  DiscoverGenre,
+  DiscoverResponse,
+  LibraryResponse,
   DownloadJob,
   HistoryResponse,
   QueueSnapshot,
@@ -110,6 +117,38 @@ export const api = {
   batchEventsUrl: (id: string) => `${API_BASE}/batch/${id}/events`,
 
   batchZipUrl: (id: string) => `${API_BASE}/batch/${id}/zip`,
+
+  discoverGenres: () => request<{ genres: DiscoverGenre[]; countries: string[] }>('/discover/genres'),
+
+  discover: (genre: number, country: string, signal?: AbortSignal) =>
+    request<DiscoverResponse>(`/discover?genre=${genre}&country=${country}`, { signal }),
+
+  library: (signal?: AbortSignal) => request<LibraryResponse>('/library', { signal }),
+
+  rescanLibrary: () => request<{ added: number; removed: number }>('/library/rescan', post({})),
+
+  removeFromLibrary: (id: string) => request<{ removed: boolean }>(`/library/tracks/${id}`, { method: 'DELETE' }),
+
+  libraryStreamUrl: (id: string) => `${API_BASE}/library/tracks/${id}/stream`,
+
+  libraryCoverUrl: (id: string) => `${API_BASE}/library/tracks/${id}/cover`,
+
+  findArtist: (name: string, signal?: AbortSignal) =>
+    request<{ artist: ArtistSummary | null }>(`/artist/find?name=${encodeURIComponent(name)}`, { signal }),
+
+  artist: (id: string, signal?: AbortSignal) => request<ArtistProfile>(`/artist/${encodeURIComponent(id)}`, { signal }),
+
+  libraryLyrics: (id: string, signal?: AbortSignal) =>
+    request<{ lyrics: Lyrics | null }>(`/library/tracks/${id}/lyrics`, { signal }),
+
+  embedLyrics: (id: string) => request<LyricsEmbedResult>(`/library/tracks/${id}/lyrics`, post({})),
+
+  lyrics: (q: { title: string; artist: string; album?: string | null; duration?: number | null }, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ title: q.title, artist: q.artist });
+    if (q.album) params.set('album', q.album);
+    if (q.duration) params.set('duration', String(Math.round(q.duration)));
+    return request<{ lyrics: Lyrics | null }>(`/lyrics?${params}`, { signal });
+  },
 };
 
 /** Masaüstü (Electron) uygulamasında mı çalışıyoruz? Orada dosyalar klasöre otomatik kaydedilir. */

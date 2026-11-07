@@ -41,6 +41,7 @@ export function youTubeInfoToMetadata(info: YtDlpVideoInfo): TrackMetadata {
     coverUrl: pickThumbnail(info),
     isrc: null,
     duration: typeof info.duration === 'number' ? Math.round(info.duration) : null,
+    genre: null,
   };
 }
 
@@ -101,6 +102,7 @@ export class YouTubeMusicProvider implements MetadataProvider {
         artist: cleanString(e.channel?.replace(/\s*-\s*Topic$/i, '')) ?? owner ?? '',
         duration: typeof e.duration === 'number' ? Math.round(e.duration) : null,
         isrc: null,
+        previewUrl: null,
         url: `https://music.youtube.com/watch?v=${e.id}`,
       })),
     };

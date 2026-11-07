@@ -22,7 +22,12 @@ function initialLang(): Lang {
   } catch {
     // depolama kapalı olabilir; tarayıcı diline düş
   }
-  return navigator.language.toLowerCase().startsWith('tr') ? 'tr' : 'en';
+  // Tarayıcı / Windows dili destekleniyorsa o, değilse İngilizce
+  for (const pref of navigator.languages ?? [navigator.language]) {
+    const code = pref.toLowerCase().split('-')[0] as Lang;
+    if ((LANGS as string[]).includes(code)) return code;
+  }
+  return 'en';
 }
 
 function format(template: string | undefined, vars?: Vars): string {

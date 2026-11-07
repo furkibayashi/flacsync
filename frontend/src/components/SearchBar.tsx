@@ -1,8 +1,8 @@
 import clsx from 'clsx';
+import type { LinkPlatform } from '../lib/format';
 import { ClipboardPaste, Link2, Loader2, Search, X } from 'lucide-react';
 import { forwardRef, type FormEvent } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
-import type { Platform } from '../types/api';
 import { PlatformTag } from './PlatformTag';
 
 export type InputMode = 'search' | 'link' | 'invalid-link';
@@ -13,7 +13,7 @@ interface Props {
   onSubmit: () => void;
   onPaste: () => void;
   mode: InputMode;
-  platform: Platform | null;
+  platform: LinkPlatform | null;
   busy: boolean;
 }
 
@@ -79,7 +79,7 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(function SearchBar(
         <button
           type="submit"
           disabled={busy || !value.trim() || invalid}
-          className="inline-flex h-12 shrink-0 items-center gap-2 rounded-xl bg-paper px-5 font-display text-base font-bold text-night transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-12 shrink-0 items-center gap-2 rounded-xl bg-paper px-5 font-display text-base font-bold text-night transition hover:bg-paper/85 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy && <Loader2 className="size-4 animate-spin" />}
           {mode === 'link' ? t('action.open') : t('action.search')}

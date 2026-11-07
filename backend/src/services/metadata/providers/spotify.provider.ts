@@ -31,7 +31,7 @@ interface SpotifyEmbedEntity {
   duration?: number;
   releaseDate?: { isoString?: string } | null;
   visualIdentity?: { image?: { url?: string; maxWidth?: number }[] };
-  trackList?: { uri?: string; title?: string; subtitle?: string; duration?: number }[];
+  trackList?: { uri?: string; title?: string; subtitle?: string; duration?: number; audioPreview?: { url?: string } }[];
 }
 
 interface SpotifySimpleTrack {
@@ -43,6 +43,7 @@ interface SpotifySimpleTrack {
   disc_number?: number;
   artists: { name: string }[];
   external_ids?: { isrc?: string };
+  preview_url?: string | null;
 }
 
 interface SpotifyPage<T> {
@@ -145,6 +146,7 @@ export class SpotifyProvider implements MetadataProvider {
         coverUrl: largestImage(data.album.images),
         isrc: data.external_ids?.isrc ?? null,
         duration: msToSeconds(data.duration_ms),
+        genre: null,
       };
     } catch (err) {
       if (!retried && axios.isAxiosError(err) && err.response?.status === 401) {
@@ -231,6 +233,7 @@ export class SpotifyProvider implements MetadataProvider {
       duration: msToSeconds(t.duration_ms),
       isrc: t.external_ids?.isrc ?? null,
       url: `https://open.spotify.com/track/${t.id}`,
+      previewUrl: t.preview_url ?? null,
     });
 
     if (type === 'album') {
@@ -329,6 +332,7 @@ export class SpotifyProvider implements MetadataProvider {
         duration: msToSeconds(t.duration),
         isrc: null,
         url: `https://open.spotify.com/track/${t.trackId}`,
+        previewUrl: t.audioPreview?.url ?? null,
       })),
     };
   }
@@ -373,6 +377,7 @@ export class SpotifyProvider implements MetadataProvider {
       coverUrl: cover,
       isrc: null,
       duration: msToSeconds(entity.duration),
+      genre: null,
     };
   }
 }

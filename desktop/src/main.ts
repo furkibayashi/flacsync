@@ -4,6 +4,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join, parse } from 'node:path';
 import dotenv from 'dotenv';
+import { Updater } from './updater.js';
 import { ensureYtDlpDir, updateYtDlpDir } from './ytdlp-dir.js';
 import {
   app,
@@ -41,6 +42,12 @@ APPLE_MUSIC_STOREFRONT=tr
 MP3_BITRATE=320
 FLAC_COMPRESSION_LEVEL=8
 MAX_CONCURRENT_DOWNLOADS=3
+
+# Odesli (song.link) API anahtarı — Amazon Music şarkı linkleri için (albüm linkleri anahtarsız çalışır)
+ODESLI_API_KEY=
+
+# Şarkı sözleri (LRCLib): indirilen dosyalara zaman damgalı sözler gömülür
+LYRICS_ENABLED=true
 
 # YouTube Premium çerezleri (Netscape cookies.txt) — 256 kbps AAC akışları için
 YTDLP_COOKIES_FILE=
@@ -109,7 +116,7 @@ function configureEnvironment(): void {
   if (!existsSync(paths.frontend)) throw new Error(`Arayüz dosyaları bulunamadı: ${paths.frontend}`);
 
   // Kullanıcı ayarları (API anahtarları vb.)
-  dotenv.config({ path: paths.settingsFile, quiet: true });
+  dotenv.config({ path: paths.settingsFile, quiet: true, override: true });
 
   // Uygulamanın kendi yönettiği ayarlar — kullanıcı dosyası bunları ezemez
   Object.assign(process.env, {
@@ -122,6 +129,9 @@ function configureEnvironment(): void {
     YTDLP_PATH: paths.ytDlp,
     FFMPEG_PATH: paths.ffmpeg,
     FRONTEND_DIST: paths.frontend,
+    // Kütüphane = kaydedilen dosyalar; kopya oluşturulmaz, kayıt bitince attach edilir
+    LIBRARY_DIR: paths.saveDir,
+    LIBRARY_COPY: 'false',
     LOG_FILE: paths.logFile,
     // Tek kullanıcılı yerel uygulama: istek sınırı pratikte kapalı
     RATE_LIMIT_MAX: '10000',
@@ -130,12 +140,16 @@ function configureEnvironment(): void {
 
 async function startServer(): Promise<{ server: Server; url: string }> {
   // Ortam değişkenleri ayarlandıktan SONRA yüklenmeli (config/env.ts import anında okur)
-  const [{ createApp }, { jobsService }, { historyService }] = await Promise.all([
+  const [{ createApp }, { jobsService }, { historyService }, { libraryService }] = await Promise.all([
     import('../../backend/src/app.js'),
     import('../../backend/src/services/jobs.service.js'),
     import('../../backend/src/services/history.service.js'),
+    import('../../backend/src/services/library.service.js'),
   ]);
-  flushHistory = () => historyService.flush();
+  flushHistory = () => Promise.all([historyService.flush(), libraryService.flush()]).then(() => undefined);
+  attachToLibrary = (jobId, file) => void libraryService.attach(jobId, file);
+  // Daha önce kaydedilmiş / elle eklenmiş dosyalar kütüphanede görünsün
+  setTimeout(() => void libraryService.rescan().catch(() => undefined), 3_000).unref();
 
   // Sabit port: arayüzün kökeni (origin) aynı kalır, dil / format tercihleri yeniden açılışta korunur.
   // Port doluysa rastgele bir porta düşülür.
@@ -160,6 +174,9 @@ async function startServer(): Promise<{ server: Server; url: string }> {
 let mainWindow: BrowserWindow | null = null;
 /** Kapanışta indirme geçmişini diske yazar (startServer sonrası atanır) */
 let flushHistory: () => Promise<void> = async () => undefined;
+/** Kaydedilen dosyayı kütüphaneye ekler (startServer sonrası atanır) */
+let attachToLibrary: (jobId: string, file: string) => void = () => undefined;
+let updater: Updater | null = null;
 
 function createWindow(url: string): BrowserWindow {
   const win = new BrowserWindow({
@@ -299,6 +316,7 @@ function setupDownloads(): void {
         if (jobId) {
           savedByJob.set(jobId, target);
           persistSavedIndex();
+          attachToLibrary(jobId, target);
         }
         notifySaved(target);
       } else if (state === 'interrupted' && mainWindow) {
@@ -341,6 +359,36 @@ function setupIpc(): void {
     return result.filePath;
   });
 
+  // --- Ayarlar sayfası ---
+  ipcMain.handle('flacsync:app-info', () => ({
+    version: app.getVersion(),
+    updateMode: updater?.current.mode ?? 'dev',
+    saveDir: paths.saveDir,
+  }));
+  ipcMain.handle('flacsync:open-location', async (_e, kind: unknown) => {
+    const target =
+      kind === 'settings' ? paths.settingsFile
+      : kind === 'logs' ? paths.logFile
+      : kind === 'licenses' ? paths.licenses
+      : kind === 'library' ? paths.saveDir
+      : null;
+    if (!target) return;
+    if (kind === 'library') mkdirSync(target, { recursive: true });
+    await shell.openPath(target);
+  });
+  ipcMain.handle('flacsync:update-ytdlp', () =>
+    updateYtDlpDir(paths.ytDlpDir, join(app.getPath('temp'), APP_NAME)).catch((err: unknown) => ({
+      error: err instanceof Error ? err.message : String(err),
+    })),
+  );
+  ipcMain.handle('flacsync:relaunch', () => relaunch());
+
+  // --- Uygulama güncellemesi ---
+  ipcMain.handle('flacsync:update-get', () => updater?.current ?? null);
+  ipcMain.handle('flacsync:update-check', () => updater?.check() ?? null);
+  ipcMain.handle('flacsync:update-download', () => updater?.download() ?? null);
+  ipcMain.handle('flacsync:update-install', () => updater?.install() ?? false);
+
   ipcMain.handle('flacsync:open-save-folder', async (_e, folder: unknown) => {
     const sub = typeof folder === 'string' ? folderFromUrl(`http://x/?folder=${encodeURIComponent(folder)}`) : null;
     const dir = sub ? join(paths.saveDir, sub) : paths.saveDir;
@@ -355,9 +403,9 @@ function setupIpc(): void {
 
 function relaunch(): void {
   // Portable exe'de kendini yeniden başlatmak için asıl exe yolu kullanılmalı
-  const portableExe = process.env.PORTABLE_EXECUTABLE_FILE;
-  app.relaunch(portableExe ? { execPath: portableExe } : undefined);
-  app.exit(0);
+  const target = process.env.PORTABLE_EXECUTABLE_FILE;
+  app.relaunch(target ? { execPath: target } : undefined);
+  void flushHistory().finally(() => app.exit(0));
 }
 
 async function updateYtDlp(): Promise<void> {
@@ -413,7 +461,7 @@ function buildMenu(): void {
         },
         { type: 'separator' },
         { label: 'Ayarlar ve API anahtarları…', click: () => void shell.openPath(paths.settingsFile) },
-        { label: 'Yeniden başlat (ayarları uygula)', click: relaunch },
+        { label: 'Yeniden başlat (ayarları uygula)', click: () => relaunch() },
         { type: 'separator' },
         { role: 'quit', label: 'Çıkış' },
       ],
@@ -421,6 +469,15 @@ function buildMenu(): void {
     {
       label: 'Araçlar',
       submenu: [
+        {
+          label: 'Güncellemeleri denetle…',
+          click: () => {
+            mainWindow?.webContents.send('flacsync:navigate', 'settings');
+            void updater?.check();
+          },
+        },
+        { label: 'Ayarlar', accelerator: 'CmdOrCtrl+,', click: () => mainWindow?.webContents.send('flacsync:navigate', 'settings') },
+        { type: 'separator' },
         { label: "yt-dlp'yi güncelle", click: () => void updateYtDlp() },
         { label: 'Log dosyasını aç', click: () => void shell.openPath(paths.logFile) },
         { type: 'separator' },
@@ -475,6 +532,7 @@ if (!app.requestSingleInstanceLock()) {
       server = started.server;
       buildMenu();
       setupDownloads();
+      updater = new Updater(() => mainWindow, () => app.quit());
       setupIpc();
       mainWindow = createWindow(started.url);
       mainWindow.on('closed', () => {
@@ -494,6 +552,7 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     event.preventDefault();
     server?.close();
-    void flushHistory().finally(() => app.exit(0));
+    // app.quit() tekrar çağrılır (exit değil): electron-updater kurulumu 'quit' olayında başlatır
+    void flushHistory().finally(() => app.quit());
   });
 }

@@ -11,6 +11,7 @@ export interface TrackMetadata {
   coverUrl: string | null;
   isrc: string | null;
   duration: number | null;
+  genre?: string | null;
 }
 
 export interface ParseResponse {
@@ -62,6 +63,7 @@ export interface CollectionTrack {
   duration: number | null;
   isrc: string | null;
   url: string;
+  previewUrl?: string | null;
 }
 
 export interface Collection {
@@ -115,6 +117,7 @@ export interface SearchResult {
   links: Partial<Record<Platform, string>>;
   score: number;
   relevance: number;
+  previewUrl: string | null;
 }
 
 export interface AlbumResult {
@@ -166,7 +169,7 @@ export interface DownloadJob {
   platform: Platform | null;
   metadata: TrackMetadata | null;
   source: ResolvedSource | null;
-  file: { name: string; size: number; mimeType: string; hasCover: boolean } | null;
+  file: { name: string; size: number; mimeType: string; hasCover: boolean; lyrics?: 'synced' | 'plain' | null } | null;
   error: { code: string; message: string; status: number } | null;
   timings: JobTimings | null;
   createdAt: string;
@@ -200,3 +203,116 @@ export interface HistoryResponse {
   total: number;
   stats: { total: number; totalBytes: number; last7Days: number; formats: Record<OutputFormat, number> };
 }
+
+// --- Keşfet ---------------------------------------------------------------------
+
+export interface DiscoverGenre {
+  id: number;
+  key: string;
+}
+
+export interface DiscoverTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  coverUrl: string | null;
+  previewUrl: string | null;
+  releaseYear: string | null;
+  genre: string | null;
+  url: string;
+  rank: number;
+}
+
+export interface DiscoverAlbum {
+  id: string;
+  title: string;
+  artist: string;
+  coverUrl: string | null;
+  releaseYear: string | null;
+  trackCount: number | null;
+  url: string;
+}
+
+export interface DiscoverResponse {
+  genreId: number;
+  country: string;
+  tracks: DiscoverTrack[];
+  albums: DiscoverAlbum[];
+}
+
+// --- Kütüphane ---------------------------------------------------------------
+
+export interface LibraryTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  genre: string | null;
+  year: string | null;
+  trackNumber: number | null;
+  duration: number | null;
+  format: OutputFormat;
+  size: number;
+  coverUrl: string | null;
+  addedAt: string;
+  relativePath: string;
+}
+
+export interface LibraryResponse {
+  tracks: LibraryTrack[];
+  genres: { name: string; count: number }[];
+  totalBytes: number;
+  dir: string;
+}
+
+// --- Sanatçı ------------------------------------------------------------------
+
+export interface ArtistSummary {
+  id: string;
+  name: string;
+  pictureUrl: string | null;
+  fans: number | null;
+}
+
+export interface ArtistTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  coverUrl: string | null;
+  duration: number | null;
+  previewUrl: string | null;
+  url: string;
+}
+
+export interface ArtistAlbum {
+  id: string;
+  title: string;
+  coverUrl: string | null;
+  releaseYear: string | null;
+  type: 'album' | 'single' | 'ep' | 'compilation';
+  url: string;
+}
+
+export interface ArtistProfile {
+  artist: ArtistSummary & { albumCount: number | null };
+  topTracks: ArtistTrack[];
+  albums: ArtistAlbum[];
+  related: ArtistSummary[];
+}
+
+// --- Şarkı sözleri ------------------------------------------------------------
+
+export interface Lyrics {
+  source: 'lrclib' | 'embedded';
+  synced: string | null;
+  plain: string | null;
+  instrumental: boolean;
+}
+
+export type LyricsEmbedResult =
+  | { status: 'embedded'; synced: boolean }
+  | { status: 'not-found' }
+  | { status: 'skipped'; reason: string }
+  | { status: 'failed'; code: string; message: string };

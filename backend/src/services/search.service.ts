@@ -7,6 +7,7 @@ import { SpotifyProvider } from './metadata/providers/spotify.provider.js';
 import type { Platform } from './metadata/types.js';
 import { artistSimilarity, splitArtists, stripTitleNoise, titleSimilarity } from './matcher/similarity.js';
 import { rankAlbums, rankCandidates } from './search/ranking.js';
+import { stableDeezerPreview } from './metadata/deezer-preview.js';
 import type { AlbumCandidate, AlbumResult, SearchCandidate, SearchResponse, SourceStatus } from './search/types.js';
 
 export type { AlbumResult, SearchCandidate, SearchResponse, SearchResult } from './search/types.js';
@@ -22,6 +23,7 @@ interface DeezerSearchTrack {
   link?: string;
   duration?: number;
   rank?: number;
+  preview?: string;
   artist: { name: string };
   album?: { title?: string; cover_xl?: string; cover_big?: string };
 }
@@ -36,6 +38,7 @@ interface ITunesSearchResult {
   artworkUrl100?: string;
   trackTimeMillis?: number;
   trackViewUrl?: string;
+  previewUrl?: string;
   kind?: string;
 }
 
@@ -234,6 +237,7 @@ export class SearchService {
       position,
       // Deezer rank ~0-1.000.000 → log ölçek
       popularity: t.rank ? Math.min(1, Math.log10(t.rank + 1) / 6) : null,
+      previewUrl: stableDeezerPreview(t.id, t.preview),
     }));
   }
 
@@ -259,6 +263,7 @@ export class SearchService {
         isrc: null,
         position,
         popularity: null,
+        previewUrl: r.previewUrl ?? null,
       }));
   }
 
@@ -277,6 +282,7 @@ export class SearchService {
       isrc: normalizeIsrc(t.external_ids?.isrc),
       position,
       popularity: typeof t.popularity === 'number' ? t.popularity / 100 : null,
+      previewUrl: (t as { preview_url?: string | null }).preview_url ?? null,
     }));
   }
 

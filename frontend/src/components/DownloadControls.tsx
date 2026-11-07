@@ -47,7 +47,7 @@ export function DownloadControls({
           type="button"
           onClick={onDownload}
           disabled={!canDownload}
-          className="inline-flex h-[62px] items-center gap-2.5 rounded-xl bg-amber px-7 font-display text-lg font-bold text-night transition hover:bg-amber-hi disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-[62px] items-center gap-2.5 rounded-xl bg-amber px-7 font-display text-lg font-bold text-on-accent transition hover:bg-amber-hi disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isRunning ? <Loader2 className="size-5 animate-spin" /> : <Download className="size-5" strokeWidth={2.5} />}
           {isRunning ? t('action.preparing') : done || failed ? t('action.downloadAgain') : t('action.download')}

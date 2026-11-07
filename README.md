@@ -14,7 +14,8 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
   kaydı birleştirir, en iyi sonucu otomatik seçer. Live / remix / karaoke sürümleri sen yazmadıkça
   geri plana atılır.
 - **Link desteği** — Spotify, Apple Music, Deezer, YouTube Music şarkı, albüm ve çalma listesi
-  linkleri; kısa linkler (`spotify.link`, `link.deezer.com`) dahil.
+  linkleri; kısa linkler (`spotify.link`, `link.deezer.com`) dahil. **Amazon Music** albüm linkleri
+  MusicBrainz üzerinden aynı albüme çevrilir; şarkı linkleri için Odesli API anahtarı gerekir.
 - **Albümler** — Albüm ya da sanatçı adını ara (ör. "daft punk discovery") veya bir şarkıdayken
   **Albümü aç**'a bas; albümün tüm parçaları listelenir.
 - **Toplu indirme** — Albümün tamamını, seçtiğin parçaları ya da tek bir parçayı indir. Albüm
@@ -22,15 +23,26 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
   `İndirilenler\FlacSync\Sanatçı - Albüm\` klasörüne kaydedilir.
 - **Doğru eşleşme** — Önce ISRC ile birebir, sonra başlık + sanatçı + süre (±5 sn) ile YouTube
   Music'te aynı kayıt bulunur; cover, live, sped-up vb. sürümler elenir.
-- **Etiketler** — MP3: ID3v2 (başlık, sanatçı, albüm, yıl, ISRC, parça no, kapak).
+- **Etiketler** — MP3: ID3v2 (başlık, sanatçı, albüm, yıl, tür, ISRC, parça no, kapak).
   FLAC: Vorbis comment + gömülü kapak.
+- **Zaman damgalı şarkı sözleri** — [LRCLib](https://lrclib.net)'ten bulunan LRC sözleri dosyaya gömülür
+  (FLAC: `LYRICS`, MP3: USLT + SYLT); oynatıcıda sözler şarkıyla birlikte akar.
+- **Oynatıcı** — Önceki / sonraki, karıştır, tekrar (tümü / tek), ilerleme çubuğu, kulağa göre ayarlı
+  ses seviyesi, klavye ve medya tuşları. Albüm, keşfet ve arama sonuçlarında 30 sn önizleme; kütüphanede
+  tam şarkı.
+- **Keşfet** — Türe ve ülkeye göre en çok dinlenen şarkılar ve albümler.
+- **Kütüphane** — İndirdiğin şarkılar: arama, tür filtresi, albüm görünümü, tek tıkla çal / karıştır.
+- **Sanatçı profilleri** — Sanatçı adına tıkla: popüler şarkılar, diskografi, benzer sanatçılar.
+- **Ayarlar** — 6 tema (Gece, OLED, Okyanus, Sakura, Orman, Gün ışığı), dil, varsayılan format ve ses.
+- **Uygulama içi güncelleme** — Yeni sürüm çıkınca uygulama haber verir; tek tıkla indirip kurar
+  (portable sürüm kendini değiştirir).
 - **Ana sayfa ve geçmiş** — İstatistikler, şu an inenler ve uygulama kapanınca da duran
   "Son indirilenler" listesi.
 - **İndirme sırası** — Tüm indirmeler tek yerde: albüm / seçime göre gruplu, iptal, yeniden dene,
   süre ve codec bilgisi. Arama sonuçlarından tek tıkla ya da çoklu seçimle sıraya ekle.
 - **Hızlı** — Aynı anda 4 indirme; eşleştirmede alınan bilgi indirmede yeniden kullanılır
   (1.1.0'a göre tek şarkı ~%45, albüm ~2 kat daha hızlı).
-- **Türkçe / English** arayüz.
+- **6 dil** — Türkçe, English, Deutsch, Español, Français, Русский.
 
 ![Albüm indirme](docs/screenshot-album.png)
 
@@ -115,6 +127,12 @@ desktop/    Electron kabuğu ve Windows paketleme (electron-builder)
 | `POST /api/download` `{url, format}` | Tek şarkı indirme işi (ilerleme: `GET /api/download/:id/events`, SSE) |
 | `GET /api/download?url=&format=` | Tek istekte indir, etiketlenmiş dosyayı döndür |
 | `POST /api/batch` `{name, format, items}` | Toplu indirme (ilerleme: `/api/batch/:id/events`, ZIP: `/api/batch/:id/zip`) |
+| `GET /api/discover?genre=&country=` | Türe / ülkeye göre popüler şarkılar ve albümler |
+| `GET /api/artist/find?name=` · `GET /api/artist/:id` | Sanatçı arama ve profil (popüler şarkılar, albümler, benzerler) |
+| `GET /api/lyrics?title=&artist=&album=&duration=` | LRCLib'den zaman damgalı sözler |
+| `GET /api/library` · `POST /api/library/rescan` | Kütüphane listesi / klasörü yeniden tara |
+| `GET /api/library/tracks/:id/stream` | Kütüphanedeki dosyayı çal (Range destekli) |
+| `GET`/`POST /api/library/tracks/:id/lyrics` | Dosyadaki sözler / sözleri bulup dosyaya göm |
 
 ## Katkı
 
@@ -147,7 +165,9 @@ Music, Deezer or YouTube Music link — or just a song name — and saves it as 
 - **Honest quality**: audio comes from YouTube Music and is lossy (usually Opus ~130 kbps).
   Converting to FLAC/320 kbps MP3 improves compatibility, not quality. FlacSync never downloads or
   decrypts DRM-protected streams.
-- **Turkish / English** interface.
+- **Player, Discover, Library and artist profiles**, synced LRC lyrics embedded into the files, six
+  themes, in-app updates, and Amazon Music album links.
+- **Six languages**: Turkish, English, German, Spanish, French, Russian.
 
 Download the installer (`FlacSync-Setup-x.y.z.exe`) or the portable exe from [Releases](../../releases).
 For development: `npm install --ignore-scripts && npm run setup:binaries`, then `npm run dev` or

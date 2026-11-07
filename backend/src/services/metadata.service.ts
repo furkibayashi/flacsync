@@ -13,7 +13,9 @@ import type {
   Platform,
   TrackMetadata,
 } from './metadata/types.js';
+import { AmazonMusicResolver, isAmazonMusicUrl } from './metadata/amazon.js';
 import { detectPlatform, parseMusicUrl } from './metadata/url-parser.js';
+import { searchService } from './search.service.js';
 
 export { MetadataError } from './metadata/errors.js';
 export type { Collection, CollectionTrack, ExtractionResult, Platform, TrackMetadata } from './metadata/types.js';
@@ -55,6 +57,18 @@ export class MetadataService {
     return detectPlatform(url);
   }
 
+  /** Desteklenen bir müzik linki mi (Amazon Music dahil)? */
+  isSupportedUrl(url: string): boolean {
+    return Boolean(detectPlatform(url)) || isAmazonMusicUrl(url);
+  }
+
+  private readonly amazon = new AmazonMusicResolver((artist, album) => searchService.findAlbum(artist, album));
+
+  /** Amazon Music linkini eşdeğer Deezer / Apple / Spotify linkine çevirir; diğerlerini olduğu gibi bırakır. */
+  private async translate(url: string): Promise<string> {
+    return isAmazonMusicUrl(url) ? this.amazon.resolve(url) : url;
+  }
+
   /** Verilen URL için standart metadata JSON'unu döndürür. */
   async extract(url: string): Promise<TrackMetadata> {
     return (await this.extractDetailed(url)).metadata;
@@ -65,7 +79,7 @@ export class MetadataService {
    * Arayüz link girişlerinde bunu kullanır.
    */
   async lookup(url: string): Promise<LookupResult> {
-    const parsed = await parseMusicUrl(url);
+    const parsed = await parseMusicUrl(await this.translate(url));
     if (parsed.type === 'track') return { kind: 'track', ...(await this.extractDetailed(parsed.url)) };
     if (parsed.type === 'album' || parsed.type === 'playlist') {
       return { kind: 'collection', collection: await this.getCollection(parsed) };
@@ -108,7 +122,7 @@ export class MetadataService {
 
   /** Metadata + kaynak platform / kimlik / zenginleştirme bilgisi. */
   async extractDetailed(url: string): Promise<ExtractionResult> {
-    const parsed = await parseMusicUrl(url);
+    const parsed = await parseMusicUrl(await this.translate(url));
 
     if (parsed.type !== 'track') {
       throw new MetadataError(

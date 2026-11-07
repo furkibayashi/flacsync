@@ -1,27 +1,41 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type Route = 'home' | 'search' | 'queue';
-const ROUTES: Route[] = ['home', 'search', 'queue'];
+export type Route = 'home' | 'discover' | 'search' | 'library' | 'queue' | 'settings' | 'artist';
+const ROUTES: Route[] = ['home', 'discover', 'search', 'library', 'queue', 'settings', 'artist'];
 
-function readRoute(): Route {
-  const hash = window.location.hash.replace(/^#\/?/, '');
-  return (ROUTES as string[]).includes(hash) ? (hash as Route) : 'home';
+interface Location {
+  route: Route;
+  /** "#/artist/15049" → "15049" */
+  param: string | null;
 }
 
-/** Basit hash yönlendirme (#/home, #/search, #/queue) — tarayıcı geri tuşu çalışır. */
-export function useHashRoute(): [Route, (route: Route) => void] {
-  const [route, setRoute] = useState<Route>(readRoute);
+function readLocation(): Location {
+  const [head = '', param] = window.location.hash.replace(/^#\/?/, '').split(/[/?]/);
+  const route = (ROUTES as string[]).includes(head) ? (head as Route) : 'home';
+  return { route, param: param ? decodeURIComponent(param) : null };
+}
+
+/** Sanatçı profilini aç (her yerden çağrılabilir; hash değişince uygulama yönlenir). */
+export function openArtist(id: string): void {
+  window.location.hash = `/artist/${encodeURIComponent(id)}`;
+  window.scrollTo({ top: 0 });
+}
+
+/** Basit hash yönlendirme (#/home, #/artist/123 …) — tarayıcı geri tuşu çalışır. */
+export function useHashRoute(): [Route, (route: Route) => void, string | null] {
+  const [location, setLocation] = useState<Location>(readLocation);
 
   useEffect(() => {
-    const onChange = () => setRoute(readRoute());
+    const onChange = () => setLocation(readLocation());
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
 
   const navigate = useCallback((next: Route) => {
-    if (readRoute() !== next) window.location.hash = `/${next}`;
+    const current = readLocation();
+    if (current.route !== next || current.param) window.location.hash = `/${next}`;
     window.scrollTo({ top: 0 });
   }, []);
 
-  return [route, navigate];
+  return [location.route, navigate, location.param];
 }

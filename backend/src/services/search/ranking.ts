@@ -110,6 +110,7 @@ function toResult(query: string, members: SearchCandidate[], activeSources: numb
     url,
     sources,
     links,
+    previewUrl: pick(members, URL_PRIORITY, (m) => m.previewUrl ?? null),
     relevance: Math.round(rel * 1000) / 1000,
     score: Math.round(clamp01(0.5 * rel + 0.2 * consensus + 0.15 * position + 0.15 * popularity + adjustment) * 1000) / 1000,
   };

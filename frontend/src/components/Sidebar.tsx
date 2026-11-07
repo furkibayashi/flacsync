@@ -1,25 +1,53 @@
 import clsx from 'clsx';
-import { Disc3, House, ListOrdered, Search, type LucideIcon } from 'lucide-react';
+import { Compass, Disc3, House, Library, ListOrdered, Search, Settings, Sparkles, type LucideIcon } from 'lucide-react';
 import { useI18n } from '../i18n/I18nProvider';
+import { useAppUpdate } from '../state/appUpdate';
 import { isTerminal, useQueue } from '../state/QueueProvider';
 import type { Route } from '../state/router';
-import { LanguageSwitch } from './LanguageSwitch';
 
-const NAV: Array<{ route: Route; icon: LucideIcon; label: 'nav.home' | 'nav.search' | 'nav.queue' }> = [
+type NavLabel = 'nav.home' | 'nav.discover' | 'nav.search' | 'nav.library' | 'nav.queue' | 'nav.settings';
+const NAV: Array<{ route: Route; icon: LucideIcon; label: NavLabel }> = [
   { route: 'home', icon: House, label: 'nav.home' },
+  { route: 'discover', icon: Compass, label: 'nav.discover' },
   { route: 'search', icon: Search, label: 'nav.search' },
+  { route: 'library', icon: Library, label: 'nav.library' },
   { route: 'queue', icon: ListOrdered, label: 'nav.queue' },
+  { route: 'settings', icon: Settings, label: 'nav.settings' },
 ];
+
+/** Yeni sürüm varsa menüde dikkat çekmeyen bir hatırlatma */
+function UpdatePill({ onOpen }: { onOpen: () => void }) {
+  const { t } = useI18n();
+  const update = useAppUpdate();
+  if (!update || (update.status !== 'available' && update.status !== 'downloaded' && update.status !== 'downloading')) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 rounded-xl bg-amber/10 px-3 py-2.5 text-left text-sm ring-1 ring-amber/40 transition hover:bg-amber/15"
+    >
+      <Sparkles className="size-4 shrink-0 text-amber" />
+      <span className="min-w-0">
+        <span className="block font-semibold text-paper">
+          {update.status === 'downloaded' ? t('update.pillReady') : t('update.pill', { version: update.version ?? '' })}
+        </span>
+        <span className="block text-xs text-dust">
+          {update.status === 'downloading' ? t('update.downloading', { progress: update.progress ?? 0 }) : t('update.pillHint')}
+        </span>
+      </span>
+    </button>
+  );
+}
 
 export function Wordmark() {
   return (
     <span className="inline-flex items-center gap-2.5">
       <svg viewBox="0 0 32 32" className="size-8" aria-hidden>
-        <circle cx="16" cy="16" r="15" fill="#2a2638" />
-        <circle cx="16" cy="16" r="11" fill="none" stroke="#383349" strokeWidth="1" />
-        <circle cx="16" cy="16" r="7.5" fill="none" stroke="#383349" strokeWidth="1" />
-        <circle cx="16" cy="16" r="4.5" fill="#f2b544" />
-        <circle cx="16" cy="16" r="1.2" fill="#17151f" />
+        <circle cx="16" cy="16" r="15" fill="var(--color-raised)" />
+        <circle cx="16" cy="16" r="11" fill="none" stroke="var(--color-rule)" strokeWidth="1" />
+        <circle cx="16" cy="16" r="7.5" fill="none" stroke="var(--color-rule)" strokeWidth="1" />
+        <circle cx="16" cy="16" r="4.5" fill="var(--color-amber)" />
+        <circle cx="16" cy="16" r="1.2" fill="var(--color-night)" />
       </svg>
       <span className="font-display text-xl font-extrabold tracking-tight">FlacSync</span>
     </span>
@@ -70,7 +98,7 @@ function NowDownloading({ onOpenQueue }: { onOpenQueue: () => void }) {
 function Badge({ count }: { count: number }) {
   if (count === 0) return null;
   return (
-    <span className="ml-auto rounded-full bg-amber px-2 py-0.5 text-[11px] font-bold text-night tabular-nums">{count}</span>
+    <span className="ml-auto rounded-full bg-amber px-2 py-0.5 text-[11px] font-bold text-on-accent tabular-nums">{count}</span>
   );
 }
 
@@ -80,7 +108,7 @@ export function Sidebar({ route, onNavigate }: { route: Route; onNavigate: (rout
   const pending = stats.active + stats.queued;
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-6 border-r border-rule/70 bg-[#1b1925]/80 px-4 py-6 backdrop-blur md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-6 border-r border-rule/70 bg-sidebar/80 px-4 py-6 backdrop-blur md:flex">
       <div className="px-2">
         <Wordmark />
       </div>
@@ -108,11 +136,12 @@ export function Sidebar({ route, onNavigate }: { route: Route; onNavigate: (rout
       </nav>
 
       <div className="mt-auto space-y-4">
+        <UpdatePill onOpen={() => onNavigate('settings')} />
         <NowDownloading onOpenQueue={() => onNavigate('queue')} />
-        <div className="flex items-center justify-between gap-2 px-1">
-          <LanguageSwitch />
+        <div className="flex items-center justify-between gap-2 px-1 text-xs text-fade">
+          <span>FlacSync</span>
           <span
-            className={clsx('size-2 rounded-full', connected ? 'bg-[#6fd39a]' : 'bg-danger')}
+            className={clsx('size-2 rounded-full', connected ? 'bg-ok' : 'bg-danger')}
             title={connected ? t('nav.connected') : t('nav.disconnected')}
             aria-label={connected ? t('nav.connected') : t('nav.disconnected')}
           />
@@ -128,20 +157,20 @@ export function MobileNav({ route, onNavigate }: { route: Route; onNavigate: (ro
   const { stats } = useQueue();
   const pending = stats.active + stats.queued;
   return (
-    <nav aria-label={t('nav.label')} className="fixed inset-x-0 bottom-0 z-30 border-t border-rule bg-[#1b1925]/95 backdrop-blur md:hidden">
-      <ul className="grid grid-cols-3">
+    <nav aria-label={t('nav.label')} className="fixed inset-x-0 bottom-0 z-30 border-t border-rule bg-sidebar/95 backdrop-blur md:hidden">
+      <ul className="grid grid-cols-6">
         {NAV.map(({ route: r, icon: Icon, label }) => (
           <li key={r}>
             <button
               type="button"
               onClick={() => onNavigate(r)}
               aria-current={route === r ? 'page' : undefined}
-              className={clsx('relative flex w-full flex-col items-center gap-0.5 py-2.5 text-xs font-semibold', route === r ? 'text-amber' : 'text-dust')}
+              className={clsx('relative flex w-full flex-col items-center gap-0.5 py-2.5 text-[10px] font-semibold', route === r ? 'text-amber' : 'text-dust')}
             >
               <Icon className="size-5" />
               {t(label)}
               {r === 'queue' && pending > 0 && (
-                <span className="absolute top-1.5 left-[calc(50%+6px)] rounded-full bg-amber px-1.5 text-[10px] font-bold text-night tabular-nums">
+                <span className="absolute top-1.5 left-[calc(50%+6px)] rounded-full bg-amber px-1.5 text-[10px] font-bold text-on-accent tabular-nums">
                   {pending}
                 </span>
               )}

@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { downloaderService, type DownloadedFile, type OutputFormat, type TagExtras } from './downloader.service.js';
 import { historyService } from './history.service.js';
+import { libraryService } from './library.service.js';
 import { metadataService } from './metadata.service.js';
 import type { Platform, TrackMetadata } from './metadata/types.js';
 import { resolverService } from './resolver.service.js';
@@ -55,7 +56,7 @@ export interface PublicJob {
   platform: Platform | null;
   metadata: TrackMetadata | null;
   source: PublicSource | null;
-  file: { name: string; size: number; mimeType: string; hasCover: boolean } | null;
+  file: { name: string; size: number; mimeType: string; hasCover: boolean; lyrics: 'synced' | 'plain' | null } | null;
   error: { code: string; message: string; status: number } | null;
   /** Aşama süreleri (ms) — tamamlanınca dolar */
   timings: JobTimings | null;
@@ -485,7 +486,7 @@ export class JobsService {
         status: 'completed',
         progress: 100,
         message: STAGE_MESSAGE.completed,
-        file: { name: file.fileName, size: file.size, mimeType: file.mimeType, hasCover: file.hasCover },
+        file: { name: file.fileName, size: file.size, mimeType: file.mimeType, hasCover: file.hasCover, lyrics: file.lyrics },
         timings,
       });
       historyService.add({
@@ -502,6 +503,10 @@ export class JobsService {
         collection: job.batchId ? this.batches.get(job.batchId)?.name ?? null : null,
         durationMs: timings.total,
         completedAt: new Date(finished).toISOString(),
+      });
+      void libraryService.recordDownload(job.id, metadata, file, {
+        folder: job.batchId ? this.batches.get(job.batchId)?.folder ?? null : null,
+        trackNumber: job.options.extras?.trackNumber ?? null,
       });
       logger.info({ id: job.id, file: file.fileName, size: file.size, timings }, 'İndirme tamamlandı');
     } catch (err) {
