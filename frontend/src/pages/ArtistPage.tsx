@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ArrowLeft, Check, Disc3, Download, Loader2, Mic2, Play, Plus, Shuffle, UserRound } from 'lucide-react';
+import { ArrowLeft, Bell, BellRing, Check, Disc3, Download, Loader2, Mic2, Play, Plus, Shuffle, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { RowPlayButton } from '../components/PlayButton';
 import { usePreferredFormat } from '../hooks/usePreferredFormat';
@@ -9,6 +9,7 @@ import { formatNumber } from '../lib/time';
 import { api, isAbort, toUiError, type UiError } from '../services/api';
 import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { useQueue } from '../state/QueueProvider';
+import { useFollows } from '../state/follows';
 import { openArtist } from '../state/router';
 import type { ArtistAlbum, ArtistProfile, ArtistTrack } from '../types/api';
 
@@ -68,6 +69,7 @@ export function ArtistPage({ id, onOpen, onBack }: { id: string | null; onOpen: 
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [bulkAdded, setBulkAdded] = useState(false);
   const [pictureFailed, setPictureFailed] = useState(false);
+  const follows = useFollows();
 
   useEffect(() => {
     if (!id) return;
@@ -148,6 +150,7 @@ export function ArtistPage({ id, onOpen, onBack }: { id: string | null; onOpen: 
   }
 
   const { artist } = data;
+  const following = follows.isFollowing(artist.id);
   const visible = showAll ? data.topTracks : data.topTracks.slice(0, FIRST_TRACKS);
   const tabs = (['album', 'single', 'compilation'] as const).filter((k) => albumsByTab[k].length > 0);
 
@@ -202,6 +205,19 @@ export function ArtistPage({ id, onOpen, onBack }: { id: string | null; onOpen: 
               >
                 <Shuffle className="size-4" />
                 {t('player.shuffle')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void follows.toggle({ id: artist.id, name: artist.name, pictureUrl: artist.pictureUrl })}
+                aria-pressed={following}
+                title={following ? t('follow.unfollowHint') : t('follow.followHint')}
+                className={clsx(
+                  'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 font-semibold ring-1 transition',
+                  following ? 'bg-amber/15 text-amber ring-amber/50 hover:bg-amber/25' : 'bg-raised text-paper ring-rule hover:ring-dust',
+                )}
+              >
+                {following ? <BellRing className="size-4" /> : <Bell className="size-4" />}
+                {following ? t('follow.following') : t('follow.follow')}
               </button>
               <button
                 type="button"

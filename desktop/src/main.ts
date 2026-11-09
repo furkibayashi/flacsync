@@ -140,13 +140,19 @@ function configureEnvironment(): void {
 
 async function startServer(): Promise<{ server: Server; url: string }> {
   // Ortam değişkenleri ayarlandıktan SONRA yüklenmeli (config/env.ts import anında okur)
-  const [{ createApp }, { jobsService }, { historyService }, { libraryService }] = await Promise.all([
-    import('../../backend/src/app.js'),
-    import('../../backend/src/services/jobs.service.js'),
-    import('../../backend/src/services/history.service.js'),
-    import('../../backend/src/services/library.service.js'),
-  ]);
-  flushHistory = () => Promise.all([historyService.flush(), libraryService.flush()]).then(() => undefined);
+  const [{ createApp }, { jobsService }, { historyService }, { libraryService }, { playlistService }, { followService }] =
+    await Promise.all([
+      import('../../backend/src/app.js'),
+      import('../../backend/src/services/jobs.service.js'),
+      import('../../backend/src/services/history.service.js'),
+      import('../../backend/src/services/library.service.js'),
+      import('../../backend/src/services/playlist.service.js'),
+      import('../../backend/src/services/follow.service.js'),
+    ]);
+  flushHistory = () =>
+    Promise.all([historyService.flush(), libraryService.flush(), playlistService.flush(), followService.flush()]).then(
+      () => undefined,
+    );
   attachToLibrary = (jobId, file) => void libraryService.attach(jobId, file);
   // Daha önce kaydedilmiş / elle eklenmiş dosyalar kütüphanede görünsün
   setTimeout(() => void libraryService.rescan().catch(() => undefined), 3_000).unref();

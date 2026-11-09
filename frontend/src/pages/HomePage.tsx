@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { ArrowRight, Disc3, FolderOpen, Library, RotateCcw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { JobRow } from '../components/JobRow';
+import { NewReleases } from '../components/NewReleases';
 import { usePreferredFormat } from '../hooks/usePreferredFormat';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatBytes, PLATFORM_LABEL } from '../lib/format';
@@ -211,6 +212,8 @@ export function HomePage({ onNavigate, onSearch }: Props) {
           </div>
         </section>
       )}
+
+      <NewReleases onOpen={onSearch} onDiscover={() => onNavigate('discover')} />
 
       <section className="space-y-4">
         <div className="flex items-baseline justify-between gap-4">

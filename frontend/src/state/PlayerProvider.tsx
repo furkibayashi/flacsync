@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { api } from '../services/api';
 import { useVolumeSetting } from './settings';
 
 /** Oynatıcıda çalınabilen her şey: 30 sn önizlemeler ve kütüphanedeki tam dosyalar. */
@@ -23,6 +24,7 @@ export interface PlayerTrack {
 export type RepeatMode = 'off' | 'all' | 'one';
 
 interface PlayerState {
+  sleepTimer: SleepTimer;
   queue: PlayerTrack[];
   index: number;
   current: PlayerTrack | null;
@@ -50,7 +52,11 @@ interface PlayerActions {
   cycleRepeat: () => void;
   jumpTo: (index: number) => void;
   close: () => void;
+  /** Uyku zamanlayıcı: dakika sonra ya da 'track' = bu şarkı bitince durur; null iptal eder */
+  setSleepTimer: (value: number | 'track' | null) => void;
 }
+
+export type SleepTimer = { kind: 'minutes'; endsAt: number } | { kind: 'track' } | null;
 
 interface Progress {
   time: number;
@@ -91,6 +97,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<Progress>({ time: 0, duration: 0 });
   /** Aynı parça yeniden seçilince de baştan çalınsın diye */
   const [playNonce, setPlayNonce] = useState(0);
+  const [sleepTimer, setSleepTimerState] = useState<SleepTimer>(null);
+  const sleepRef = useRef<SleepTimer>(null);
+  sleepRef.current = sleepTimer;
 
   const current = index >= 0 ? queue[index] ?? null : null;
 
@@ -190,7 +199,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const onPause = () => setPlaying(false);
     const onPlaying = () => setLoading(false);
     const onWaiting = () => setLoading(true);
-    const onEnded = () => advanceRef.current(1, true);
+    const onEnded = () => {
+      if (sleepRef.current?.kind === 'track') {
+        setSleepTimerState(null);
+        setPlaying(false);
+        return;
+      }
+      advanceRef.current(1, true);
+    };
     const onError = () => {
       if (!audio.getAttribute('src')) return;
       setError(true);
@@ -299,6 +315,50 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [setVolumeSetting],
   );
 
+  // --- Uyku zamanlayıcı: süre dolunca 8 sn'de sesi kısıp durdurur --------------------------------
+  const fadeAndStop = useCallback(() => {
+    const audio = audioRef.current;
+    setSleepTimerState(null);
+    if (!audio || audio.paused) return;
+    const start = audio.volume;
+    const steps = 32;
+    let i = 0;
+    const timer = setInterval(() => {
+      i++;
+      audio.volume = Math.max(0, start * (1 - i / steps));
+      if (i >= steps) {
+        clearInterval(timer);
+        audio.pause();
+        audio.volume = start;
+      }
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    if (sleepTimer?.kind !== 'minutes') return;
+    const ms = sleepTimer.endsAt - Date.now();
+    const timer = setTimeout(fadeAndStop, Math.max(0, ms));
+    return () => clearTimeout(timer);
+  }, [sleepTimer, fadeAndStop]);
+
+  const setSleepTimer = useCallback((value: number | 'track' | null) => {
+    if (value === null) setSleepTimerState(null);
+    else if (value === 'track') setSleepTimerState({ kind: 'track' });
+    else setSleepTimerState({ kind: 'minutes', endsAt: Date.now() + value * 60_000 });
+  }, []);
+
+  // --- Dinlenme sayısı: kütüphane şarkısı 30 sn çalınınca bir kez bildirilir -----------------------
+  const reportedRef = useRef<string | null>(null);
+  useEffect(() => {
+    reportedRef.current = null;
+  }, [current, playNonce]);
+  useEffect(() => {
+    const id = current?.libraryId;
+    if (!id || reportedRef.current === current?.id || progress.time < 30) return;
+    reportedRef.current = current.id;
+    void api.markPlayed(id).catch(() => undefined);
+  }, [current, progress.time]);
+
   const close = useCallback(() => {
     setQueue([]);
     setOriginal([]);
@@ -372,8 +432,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setPlayNonce((n) => n + 1);
       },
       close,
+      sleepTimer,
+      setSleepTimer,
     }),
-    [queue, index, current, playing, loading, shuffle, repeat, volume, muted, error, playList, toggleTrack, toggle, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, close],
+    [queue, index, current, playing, loading, shuffle, repeat, volume, muted, error, playList, toggleTrack, toggle, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, close, sleepTimer, setSleepTimer],
   );
 
   return (

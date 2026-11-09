@@ -8,6 +8,9 @@ name: Release
 #   Secrets:   SIGNPATH_API_TOKEN
 #   Variables: SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG
 # Ayrıntılar: CODE_SIGNING.md
+#
+# VirusTotal (isteğe bağlı): Secrets'a VT_API_KEY (ücretsiz VirusTotal hesabının API anahtarı)
+# eklenirse exe dosyaları her sürümde taranır ve tarama linkleri sürüm notlarına yazılır.
 
 on:
   push:
@@ -19,6 +22,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -76,6 +81,22 @@ jobs:
       # Uygulama içi güncelleme bu dosyayı okur; imzalamadan SONRA üretilmeli (özet değişir)
       - name: Update manifest (latest.yml)
         run: node desktop/scripts/update-manifest.mjs dist-release
+
+      # Büyük dosyalar (>32 MB) için önce tek kullanımlık yükleme adresi alınır
+      - name: VirusTotal scan
+        if: ${{ env.VT_API_KEY != '' }}
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = "docs/release-notes/$tag.md"
+          $lines = @('', '## VirusTotal', '')
+          foreach ($file in Get-ChildItem dist-release -Filter *.exe) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+            $upload = (Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files/upload_url' -Headers @{ 'x-apikey' = $env:VT_API_KEY }).data
+            curl.exe --silent --show-error --fail -H "x-apikey: $env:VT_API_KEY" -F "file=@$($file.FullName)" $upload | Out-Null
+            $lines += "- [$($file.Name)](https://www.virustotal.com/gui/file/$hash)"
+          }
+          if (Test-Path $notes) { Add-Content -Path $notes -Value ($lines -join [Environment]::NewLine) -Encoding utf8 }
 
       - name: Publish GitHub Release
         shell: pwsh

@@ -33,7 +33,14 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
 - **Keşfet** — Türe ve ülkeye göre en çok dinlenen şarkılar ve albümler.
 - **Kütüphane** — İndirdiğin şarkılar: arama, tür filtresi, albüm görünümü, tek tıkla çal / karıştır.
 - **Sanatçı profilleri** — Sanatçı adına tıkla: popüler şarkılar, diskografi, benzer sanatçılar.
-- **Ayarlar** — 6 tema (Gece, OLED, Okyanus, Sakura, Orman, Gün ışığı), dil, varsayılan format ve ses.
+- **Doğru türler** — Tür iTunes ve MusicBrainz'den belirlenir (Deezer'ın her şeye "Pop" demesi yerine);
+  Kütüphane'de **Türleri düzelt** eski dosyaları da düzeltir, tür tıklanıp elle de değiştirilebilir.
+- **Çalma listeleri** — Kendi listelerin + akıllı listeler (en çok dinlenenler, son eklenenler, hiç
+  dinlenmeyenler); M3U8 olarak dışa aktar (VLC, foobar2000, MusicBee, telefon).
+- **Sanatçı takibi** — Takip ettiğin sanatçıların yeni albüm ve single'ları ana sayfada.
+- **Şimdi çalıyor ekranı** — Büyük kapak, dönen plak, akan sözler, sıradakiler; **uyku zamanlayıcı**.
+- **Ayarlar** — 6 renk teması ve renkten bağımsız 6 tasarım (Klasik, Yumuşak, Sıkı, Keskin, Kaset, Cam),
+  dil, varsayılan format ve ses.
 - **Uygulama içi güncelleme** — Yeni sürüm çıkınca uygulama haber verir; tek tıkla indirip kurar
   (portable sürüm kendini değiştirir).
 - **Ana sayfa ve geçmiş** — İstatistikler, şu an inenler ve uygulama kapanınca da duran
@@ -76,6 +83,8 @@ Get-FileHash .\FlacSync-Setup-1.1.0.exe -Algorithm SHA256
 
 Sürüm dosyaları yalnızca bu depodan, GitHub Actions üzerinde derlenir. İmzalama planı ve politikası:
 [CODE_SIGNING.md](CODE_SIGNING.md).
+
+Dosyalar [VirusTotal'de temiz](CODE_SIGNING.md#virustotal-taraması) (1.3.0 kurulum: 0/65).
 
 ### Ayarlar ve API anahtarları (isteğe bağlı)
 

@@ -15,7 +15,7 @@ import { useStartupUpdateCheck } from './state/appUpdate';
 import { PlayerProvider, usePlayer } from './state/PlayerProvider';
 import { QueueProvider, useQueue } from './state/QueueProvider';
 import { useHashRoute, type Route } from './state/router';
-import { useAutoUpdateSetting, useTheme } from './state/settings';
+import { useAutoUpdateSetting, useDesignStyle, useTheme } from './state/settings';
 
 export interface SearchRequest {
   query: string;
@@ -34,6 +34,7 @@ function Shell() {
   const [autoUpdate] = useAutoUpdateSetting();
 
   useTheme();
+  useDesignStyle();
   useStartupUpdateCheck(autoUpdate);
 
   // Masaüstü menüsü: "Ayarlar", "Güncellemeleri denetle"

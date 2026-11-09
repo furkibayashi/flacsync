@@ -3,6 +3,8 @@
   try {
     var theme = localStorage.getItem('flacsync.theme');
     if (theme && theme !== 'night') document.documentElement.setAttribute('data-theme', theme);
+    var style = localStorage.getItem('flacsync.style');
+    if (style && style !== 'classic') document.documentElement.setAttribute('data-style', style);
   } catch (e) {
     /* depolama kapalı */
   }

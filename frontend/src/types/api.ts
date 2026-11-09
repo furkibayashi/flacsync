@@ -256,6 +256,8 @@ export interface LibraryTrack {
   size: number;
   coverUrl: string | null;
   addedAt: string;
+  playCount: number;
+  lastPlayedAt: string | null;
   relativePath: string;
 }
 
@@ -316,3 +318,45 @@ export type LyricsEmbedResult =
   | { status: 'not-found' }
   | { status: 'skipped'; reason: string }
   | { status: 'failed'; code: string; message: string };
+
+// --- Çalma listeleri / takip ----------------------------------------------------
+
+export interface Playlist {
+  id: string;
+  name: string;
+  trackIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  available: number;
+  coverIds: string[];
+  duration: number;
+}
+
+export interface GenreFixStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  changed: number;
+  tagFailed: number;
+  current: string | null;
+  finishedAt: string | null;
+}
+
+export interface FollowedArtist {
+  id: string;
+  name: string;
+  pictureUrl: string | null;
+  followedAt: string;
+}
+
+export interface Release {
+  id: string;
+  title: string;
+  artistId: string;
+  artist: string;
+  coverUrl: string | null;
+  releaseDate: string;
+  releaseYear: string | null;
+  type: 'album' | 'single' | 'ep' | 'compilation';
+  url: string;
+}

@@ -1,32 +1,20 @@
 import clsx from 'clsx';
-import { ArrowLeft, Disc3, FolderOpen, Library, Loader2, Play, RefreshCw, Search, Shuffle, Trash2, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Library, Loader2, Play, RefreshCw, Search, Shuffle, Tags, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RowPlayButton } from '../components/PlayButton';
+import { PlaylistDetail, PlaylistsGrid, type ListRef } from '../components/LibraryPlaylists';
+import { LibraryCover as Cover, LibrarySongRow, toPlayerTrack } from '../components/LibrarySongRow';
 import { useI18n } from '../i18n/I18nProvider';
-import { ArtistLinks } from '../components/ArtistLinks';
-import { formatBytes, formatDuration } from '../lib/format';
+import { formatBytes } from '../lib/format';
 import { formatNumber } from '../lib/time';
 import { api, isAbort, toUiError, type UiError } from '../services/api';
-import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
+import { usePlayer } from '../state/PlayerProvider';
 import { useQueue } from '../state/QueueProvider';
 import type { Route } from '../state/router';
 import { useStoredState } from '../state/settings';
-import type { LibraryResponse, LibraryTrack } from '../types/api';
+import type { GenreFixStatus, LibraryResponse, LibraryTrack } from '../types/api';
 
-type View = 'songs' | 'albums';
-const isView = (v: unknown): v is View => v === 'songs' || v === 'albums';
-
-const toPlayerTrack = (t: LibraryTrack): PlayerTrack => ({
-  id: `lib:${t.id}`,
-  title: t.title,
-  artist: t.artist,
-  album: t.album,
-  coverUrl: api.libraryCoverUrl(t.id),
-  src: api.libraryStreamUrl(t.id),
-  kind: 'full',
-  duration: t.duration,
-  libraryId: t.id,
-});
+type View = 'songs' | 'albums' | 'playlists';
+const isView = (v: unknown): v is View => v === 'songs' || v === 'albums' || v === 'playlists';
 
 interface AlbumGroup {
   key: string;
@@ -38,77 +26,6 @@ interface AlbumGroup {
 }
 
 const albumKey = (t: LibraryTrack) => `${(t.album ?? '').toLowerCase()}|${t.album ? '' : t.artist.toLowerCase()}`;
-
-function Cover({ id, className }: { id: string; className?: string }) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <span className={clsx('relative block shrink-0 overflow-hidden bg-raised', className)}>
-      {!failed ? (
-        <img src={api.libraryCoverUrl(id)} alt="" loading="lazy" onError={() => setFailed(true)} className="size-full object-cover" />
-      ) : (
-        <Disc3 className="absolute inset-0 m-auto size-1/2 text-fade" strokeWidth={1.25} />
-      )}
-    </span>
-  );
-}
-
-function SongRow({
-  track,
-  index,
-  onPlay,
-  onRemove,
-  showAlbum,
-}: {
-  track: LibraryTrack;
-  index: number;
-  onPlay: () => void;
-  onRemove: () => void;
-  showAlbum: boolean;
-}) {
-  const { t } = useI18n();
-  const { current, playing } = usePlayer();
-  const active = current?.id === `lib:${track.id}`;
-  return (
-    <li
-      onDoubleClick={onPlay}
-      className={clsx('group flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-raised/60 sm:gap-4 sm:px-3', active && 'bg-raised/70')}
-    >
-      <span className="w-6 shrink-0 text-right text-sm text-fade tabular-nums">{track.trackNumber ?? index + 1}</span>
-      <Cover id={track.id} className="size-11 rounded-md" />
-      <span className="min-w-0 flex-1">
-        <span className={clsx('block truncate font-semibold', active ? 'text-amber' : 'text-paper')}>{track.title}</span>
-        {track.artist ? (
-          <ArtistLinks names={track.artist} className="block truncate text-sm text-dust" />
-        ) : (
-          <span className="block truncate text-sm text-dust">—</span>
-        )}
-      </span>
-      {showAlbum && <span className="hidden min-w-0 flex-1 truncate text-sm text-fade lg:block">{track.album}</span>}
-      {track.genre && (
-        <span className="hidden shrink-0 rounded-full bg-raised px-2.5 py-0.5 text-xs text-dust xl:block">{track.genre}</span>
-      )}
-      <span
-        className={clsx(
-          'hidden shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase sm:block',
-          track.format === 'flac' ? 'bg-flac/20 text-flac' : 'bg-amber/15 text-amber',
-        )}
-      >
-        {track.format}
-      </span>
-      <span className="hidden w-12 shrink-0 text-right text-sm text-fade tabular-nums sm:block">{formatDuration(track.duration)}</span>
-      <RowPlayButton active={active} playing={active && playing} onClick={onPlay} />
-      <button
-        type="button"
-        onClick={onRemove}
-        title={t('library.remove')}
-        aria-label={t('library.remove')}
-        className="grid size-9 shrink-0 place-items-center rounded-full text-fade opacity-0 transition group-hover:opacity-100 hover:text-danger focus-visible:opacity-100"
-      >
-        <Trash2 className="size-4" />
-      </button>
-    </li>
-  );
-}
 
 export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void }) {
   const { t, lang } = useI18n();
@@ -122,6 +39,8 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
   const [genre, setGenre] = useState<string | null>(null);
   const [view, setView] = useStoredState<View>('flacsync.library.view', 'songs', isView);
   const [openAlbum, setOpenAlbum] = useState<string | null>(null);
+  const [openList, setOpenList] = useState<ListRef | null>(null);
+  const [fix, setFix] = useState<GenreFixStatus | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     return api
@@ -153,6 +72,38 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
       setScanning(false);
     }
   };
+
+  // --- Türleri düzelt (arka planda; ilerleme yarım saniyede bir okunur) ---------------------------
+  useEffect(() => {
+    void api.genreFixStatus().then((s) => s.running && setFix(s)).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!fix?.running) return;
+    const timer = setInterval(() => {
+      void api.genreFixStatus().then((s) => {
+        setFix(s);
+        if (!s.running) void load();
+      });
+    }, 700);
+    return () => clearInterval(timer);
+  }, [fix?.running, load]);
+
+  const startFix = async () => {
+    const s = await api.startGenreFix().catch(() => null);
+    if (s) setFix(s);
+  };
+
+  /** Satırda tür değişti: listeyi ve tür filtrelerini yerinde güncelle */
+  const onTrackChange = (updated: LibraryTrack) =>
+    setData((d) => {
+      if (!d) return d;
+      const tracks = d.tracks.map((x) => (x.id === updated.id ? { ...x, ...updated } : x));
+      const counts = new Map<string, number>();
+      for (const x of tracks) if (x.genre) counts.set(x.genre, (counts.get(x.genre) ?? 0) + 1);
+      return { ...d, tracks, genres: [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count) };
+    });
+
+  const knownGenres = useMemo(() => (data?.genres ?? []).map((g) => g.name), [data]);
 
   const remove = async (track: LibraryTrack) => {
     await api.removeFromLibrary(track.id).catch(() => undefined);
@@ -237,6 +188,16 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
           </button>
           <button
             type="button"
+            onClick={() => void startFix()}
+            disabled={fix?.running || !total}
+            title={t('library.fixGenresHint')}
+            className="inline-flex items-center gap-2 rounded-xl bg-raised px-4 py-2.5 font-semibold text-paper ring-1 ring-rule transition hover:ring-dust disabled:opacity-50"
+          >
+            {fix?.running ? <Loader2 className="size-4 animate-spin" /> : <Tags className="size-4" />}
+            {fix?.running ? t('library.fixGenresProgress', { done: fix.done, total: fix.total }) : t('library.fixGenres')}
+          </button>
+          <button
+            type="button"
             onClick={() => void rescan()}
             disabled={scanning}
             title={t('library.rescanHint')}
@@ -262,7 +223,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
       {total > 0 && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label className="relative flex-1">
+            <label className={clsx('relative flex-1', view === 'playlists' && 'invisible')}>
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-fade" />
               <input
                 type="search"
@@ -284,7 +245,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
               )}
             </label>
             <div role="group" aria-label={t('library.view')} className="inline-flex shrink-0 rounded-xl bg-panel p-1 ring-1 ring-rule">
-              {(['songs', 'albums'] as const).map((v) => (
+              {(['songs', 'albums', 'playlists'] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -292,19 +253,20 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                   onClick={() => {
                     setView(v);
                     setOpenAlbum(null);
+                    setOpenList(null);
                   }}
                   className={clsx(
                     'rounded-lg px-4 py-1.5 text-sm font-semibold transition',
                     view === v ? 'bg-paper text-night' : 'text-dust hover:text-paper',
                   )}
                 >
-                  {t(v === 'songs' ? 'library.songs' : 'library.albums')}
+                  {t(v === 'songs' ? 'library.songs' : v === 'albums' ? 'library.albums' : 'library.playlists')}
                 </button>
               ))}
             </div>
           </div>
 
-          {data && data.genres.length > 0 && (
+          {data && data.genres.length > 0 && view !== 'playlists' && (
             <div role="group" aria-label={t('discover.genres')} className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -406,16 +368,42 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
         </section>
       )}
 
+      {fix && !fix.running && fix.finishedAt && (
+        <p className="flex items-center justify-between gap-3 rounded-xl bg-ok/10 px-4 py-3 text-sm text-paper ring-1 ring-ok/30">
+          <span>
+            {t('library.fixGenresDone', { changed: fix.changed, total: fix.total })}
+            {fix.tagFailed > 0 && <span className="text-dust"> · {t('library.fixGenresTagFailed', { count: fix.tagFailed })}</span>}
+          </span>
+          <button type="button" onClick={() => setFix(null)} aria-label={t('lyrics.close')} className="text-dust hover:text-paper">
+            <X className="size-4" />
+          </button>
+        </p>
+      )}
+
+      {data && total > 0 && view === 'playlists' && !openList && <PlaylistsGrid tracks={data.tracks} onOpen={setOpenList} />}
+      {data && view === 'playlists' && openList && (
+        <PlaylistDetail
+          listRef={openList}
+          tracks={data.tracks}
+          knownGenres={knownGenres}
+          onBack={() => setOpenList(null)}
+          onTrackChange={onTrackChange}
+        />
+      )}
+
       {data && total > 0 && (view === 'songs' || album) && (
         <ol className="space-y-0.5">
           {list.map((track, i) => (
-            <SongRow
+            <LibrarySongRow
               key={track.id}
               track={track}
               index={i}
               showAlbum={!album}
+              knownGenres={knownGenres}
+              onChange={onTrackChange}
               onPlay={() => playFrom(list, track)}
               onRemove={() => void remove(track)}
+              removeLabel={t('library.remove')}
             />
           ))}
         </ol>

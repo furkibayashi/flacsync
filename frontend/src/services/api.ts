@@ -1,5 +1,10 @@
 import type {
   AlbumResult,
+  FollowedArtist,
+  GenreFixStatus,
+  LibraryTrack,
+  Playlist,
+  Release,
   ArtistProfile,
   ArtistSummary,
   Lyrics,
@@ -132,6 +137,42 @@ export const api = {
   libraryStreamUrl: (id: string) => `${API_BASE}/library/tracks/${id}/stream`,
 
   libraryCoverUrl: (id: string) => `${API_BASE}/library/tracks/${id}/cover`,
+
+  setGenre: (id: string, genre: string | null) =>
+    request<{ track: LibraryTrack; tagWritten: boolean }>(`/library/tracks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ genre }),
+    }),
+
+  startGenreFix: () => request<GenreFixStatus>('/library/genres/fix', post({})),
+
+  genreFixStatus: () => request<GenreFixStatus>('/library/genres/fix'),
+
+  markPlayed: (id: string) => request<{ ok: boolean }>(`/library/tracks/${id}/played`, post({})),
+
+  playlists: (signal?: AbortSignal) => request<{ playlists: Playlist[] }>('/playlists', { signal }),
+
+  createPlaylist: (name: string, trackIds: string[] = []) => request<Playlist>('/playlists', post({ name, trackIds })),
+
+  updatePlaylist: (id: string, patch: { name?: string; trackIds?: string[] }) =>
+    request<Playlist>(`/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  addToPlaylist: (id: string, trackIds: string[]) => request<Playlist>(`/playlists/${id}/tracks`, post({ trackIds })),
+
+  deletePlaylist: (id: string) => request<{ removed: boolean }>(`/playlists/${id}`, { method: 'DELETE' }),
+
+  playlistM3uUrl: (id: string) => `${API_BASE}/playlists/${id}/m3u`,
+
+  exportPlaylist: (id: string) => request<{ file: string }>(`/playlists/${id}/export`, post({})),
+
+  follows: (signal?: AbortSignal) => request<{ artists: FollowedArtist[] }>('/follows', { signal }),
+
+  follow: (artist: { id: string; name: string; pictureUrl: string | null }) =>
+    request<FollowedArtist>('/follows', post(artist)),
+
+  unfollow: (id: string) => request<{ removed: boolean }>(`/follows/${id}`, { method: 'DELETE' }),
+
+  releases: (signal?: AbortSignal) => request<{ releases: Release[] }>('/follows/releases', { signal }),
 
   findArtist: (name: string, signal?: AbortSignal) =>
     request<{ artist: ArtistSummary | null }>(`/artist/find?name=${encodeURIComponent(name)}`, { signal }),

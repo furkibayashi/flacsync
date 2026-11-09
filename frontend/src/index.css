@@ -220,3 +220,86 @@ body {
 .fs-range:focus-visible {
   outline-offset: 2px;
 }
+
+/* --- Tasarım stilleri (Ayarlar → Görünüm → Tasarım). Renkten bağımsız: köşe, yazı tipi, boşluk, gölge, doku. --- */
+
+/* Yumuşak: büyük yuvarlak köşeler, hap biçimli düğmeler */
+:root[data-style="soft"] {
+  --radius-md: 0.6rem;
+  --radius-lg: 0.9rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.6rem;
+  --radius-3xl: 2.25rem;
+}
+
+/* Sıkı: daha küçük yazı ve boşluklar — küçük ekranlarda daha çok içerik */
+:root[data-style="compact"] {
+  font-size: 92%;
+  --spacing: 0.22rem;
+}
+
+/* Keskin: düz köşeler, gölgesiz, sade yazı tipi */
+:root[data-style="minimal"] {
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 1px;
+  --radius-xl: 2px;
+  --radius-2xl: 2px;
+  --radius-3xl: 3px;
+  --font-display: var(--font-sans);
+}
+:root[data-style="minimal"] * {
+  --tw-shadow: 0 0 #0000 !important;
+}
+:root[data-style="minimal"] h1,
+:root[data-style="minimal"] h2 {
+  letter-spacing: -0.01em;
+}
+
+/* Kaset: daktilo yazı tipi, ince köşeler, film greni */
+:root[data-style="retro"] {
+  --font-display: "Space Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --radius-xl: 4px;
+  --radius-2xl: 5px;
+  --radius-3xl: 6px;
+}
+:root[data-style="retro"] h1,
+:root[data-style="retro"] h2 {
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+:root[data-style="retro"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Cam: yarı saydam buzlu paneller, arkada renkli ışıklar */
+:root[data-style="glass"] {
+  --color-panel: color-mix(in srgb, var(--color-raised) 52%, transparent);
+  --color-sidebar: color-mix(in srgb, var(--color-night) 55%, transparent);
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+}
+:root[data-style="glass"] body {
+  background-image:
+    radial-gradient(40vw 40vw at 85% 10%, color-mix(in srgb, var(--color-amber) 22%, transparent), transparent 70%),
+    radial-gradient(45vw 45vw at 10% 90%, color-mix(in srgb, var(--color-flac) 24%, transparent), transparent 70%);
+  background-attachment: fixed;
+}
+:root[data-style="glass"] [class*="bg-panel"],
+:root[data-style="glass"] [class*="bg-sidebar"] {
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* Şimdi çalıyor ekranı: hafif gren */
+.np-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}

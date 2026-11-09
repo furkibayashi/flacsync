@@ -6,6 +6,8 @@ import { basename, extname, join, parse, relative, resolve } from 'node:path';
 import { env } from '../config/env.js';
 import PQueue from 'p-queue';
 import { readTags } from '../utils/audio-tags.js';
+import { writeGenreTag } from '../utils/tag-writer.js';
+import { canonicalGenre, genreService } from './genre.service.js';
 import { ffmpegPath } from '../utils/ffmpeg.js';
 import { logger } from '../utils/logger.js';
 import type { TrackMetadata } from './metadata/types.js';
@@ -35,6 +37,9 @@ export interface LibraryTrack {
   /** İndirme sırasında bilinen uzak kapak; yoksa gömülü kapak /cover ile okunur */
   coverUrl: string | null;
   addedAt: string;
+  /** Uygulamada kaç kez dinlendi (≥30 sn) */
+  playCount: number;
+  lastPlayedAt: string | null;
   /** Kütüphane klasörüne göre yol (arayüzde gösterilir) */
   relativePath: string;
 }
@@ -42,6 +47,17 @@ export interface LibraryTrack {
 interface StoredTrack extends LibraryTrack {
   path: string;
   mtimeMs: number;
+}
+
+export interface GenreFixStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  changed: number;
+  /** Etiketi dosyaya yazılamayanlar (ör. o an çalınan dosya) — listede yine düzeltilir */
+  tagFailed: number;
+  current: string | null;
+  finishedAt: string | null;
 }
 
 export interface LibraryListing {
@@ -122,7 +138,7 @@ export class LibraryService {
       if (t.genre) genreCount.set(t.genre, (genreCount.get(t.genre) ?? 0) + 1);
     }
     return {
-      tracks: tracks.map(({ path: _p, mtimeMs: _m, ...pub }) => pub),
+      tracks: tracks.map(({ path: _p, mtimeMs: _m, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null })),
       genres: [...genreCount.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
       totalBytes,
       dir: this.dir,
@@ -206,6 +222,83 @@ export class LibraryService {
     }
   }
 
+  /**
+   * Türü elle değiştirir: dizin hemen güncellenir, dosyanın etiketi de yazılır.
+   * Etiket yazılamazsa (dosya kullanımda vb.) false döner, dizin yine de güncellenir.
+   */
+  async setGenre(id: string, genre: string | null): Promise<{ ok: boolean; tagWritten: boolean }> {
+    const t = this.tracks.get(id);
+    if (!t) return { ok: false, tagWritten: false };
+    const value = canonicalGenre(genre);
+    t.genre = value;
+    this.scheduleWrite();
+    if (!value) return { ok: true, tagWritten: false };
+    try {
+      await writeGenreTag(t.path, value);
+      const s = await stat(t.path);
+      t.size = s.size;
+      t.mtimeMs = s.mtimeMs;
+      this.scheduleWrite();
+      return { ok: true, tagWritten: true };
+    } catch (err) {
+      logger.warn({ err, file: t.path }, 'Tür etiketi dosyaya yazılamadı');
+      return { ok: true, tagWritten: false };
+    }
+  }
+
+  private fixStatus: GenreFixStatus = {
+    running: false,
+    total: 0,
+    done: 0,
+    changed: 0,
+    tagFailed: 0,
+    current: null,
+    finishedAt: null,
+  };
+
+  get genreFix(): GenreFixStatus {
+    return this.fixStatus;
+  }
+
+  /**
+   * Tüm kütüphanenin türünü iTunes + MusicBrainz ile yeniden belirler (arka planda).
+   * Yalnızca değişenlerin dosyası yeniden etiketlenir.
+   */
+  startGenreFix(): GenreFixStatus {
+    if (this.fixStatus.running) return this.fixStatus;
+    const tracks = [...this.tracks.values()].filter((t) => existsSync(t.path));
+    this.fixStatus = { running: true, total: tracks.length, done: 0, changed: 0, tagFailed: 0, current: null, finishedAt: null };
+    void (async () => {
+      for (const t of tracks) {
+        this.fixStatus.current = `${t.artist} - ${t.title}`;
+        try {
+          const { genre } = await genreService.resolve({ title: t.title, artist: t.artist, album: t.album, hint: t.genre });
+          if (genre && genre !== t.genre) {
+            this.fixStatus.changed++;
+            const r = await this.setGenre(t.id, genre);
+            if (!r.tagWritten) this.fixStatus.tagFailed++;
+          }
+        } catch (err) {
+          logger.debug({ err, id: t.id }, 'Tür düzeltilemedi');
+        }
+        this.fixStatus.done++;
+      }
+      this.fixStatus = { ...this.fixStatus, running: false, current: null, finishedAt: new Date().toISOString() };
+      logger.info(this.fixStatus, 'Kütüphane türleri düzeltildi');
+    })();
+    return this.fixStatus;
+  }
+
+  /** Oynatıcı bildirir: şarkı en az 30 sn dinlendi */
+  markPlayed(id: string): boolean {
+    const t = this.tracks.get(id);
+    if (!t) return false;
+    t.playCount = (t.playCount ?? 0) + 1;
+    t.lastPlayedAt = new Date().toISOString();
+    this.scheduleWrite();
+    return true;
+  }
+
   remove(id: string): boolean {
     const removed = this.tracks.delete(id);
     if (removed) this.scheduleWrite();
@@ -279,7 +372,7 @@ export class LibraryService {
       title: meta?.title ?? first(tags, 'title') ?? parse(path).name,
       artist: meta?.artist ?? first(tags, 'artist', 'album_artist', 'albumartist') ?? '',
       album: meta?.album ?? first(tags, 'album'),
-      genre: meta?.genre ?? first(tags, 'genre'),
+      genre: canonicalGenre(meta?.genre ?? first(tags, 'genre')),
       year: meta?.releaseDate ?? first(tags, 'date', 'year')?.slice(0, 4) ?? null,
       trackNumber: pending?.trackNumber ?? (trackRaw ? Number.parseInt(trackRaw, 10) || null : null),
       duration: meta?.duration ?? read?.duration ?? null,
@@ -287,6 +380,8 @@ export class LibraryService {
       size: s.size,
       coverUrl: meta?.coverUrl ?? null,
       addedAt: addedAt ?? this.tracks.get(id)?.addedAt ?? new Date().toISOString(),
+      playCount: this.tracks.get(id)?.playCount ?? 0,
+      lastPlayedAt: this.tracks.get(id)?.lastPlayedAt ?? null,
       relativePath: relativeTo(this.dir, path),
     };
     this.tracks.set(id, track);

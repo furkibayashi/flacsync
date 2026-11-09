@@ -11,7 +11,9 @@ import { searchService } from '../services/search.service.js';
 import { COUNTRIES, discoverService, GENRES } from '../services/discover.service.js';
 import { artistService } from '../services/artist.service.js';
 import { freshDeezerPreview } from '../services/metadata/deezer-preview.js';
+import { followService } from '../services/follow.service.js';
 import { libraryService } from '../services/library.service.js';
+import { PlaylistError, playlistService } from '../services/playlist.service.js';
 import { lyricsService } from '../services/lyrics/lyrics.service.js';
 import { HttpError } from '../utils/http-error.js';
 
@@ -406,9 +408,124 @@ apiRouter.get('/lyrics', async (req, res) => {
   res.json({ lyrics: await lyricsService.find(q) });
 });
 
+const genreBody = z.object({ genre: z.string().trim().max(60).nullable() });
+
+/** Türü elle düzelt (dosyanın etiketine de yazılır) */
+apiRouter.patch('/library/tracks/:id', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  const { genre } = genreBody.parse(req.body);
+  const result = await libraryService.setGenre(id, genre);
+  if (!result.ok) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  res.json({ track: libraryService.track(id), tagWritten: result.tagWritten });
+});
+
+/** Tüm türleri yeniden belirle (arka planda); durum GET ile izlenir */
+apiRouter.post('/library/genres/fix', (_req, res) => {
+  res.status(202).json(libraryService.startGenreFix());
+});
+
+apiRouter.get('/library/genres/fix', (_req, res) => {
+  res.json(libraryService.genreFix);
+});
+
 apiRouter.delete('/library/tracks/:id', (req, res) => {
   const { id } = libraryParams.parse(req.params);
   res.json({ removed: libraryService.remove(id) });
+});
+
+// --- Çalma listeleri ----------------------------------------------------------
+
+const playlistParams = z.object({ id: z.string().uuid() });
+const trackIdList = z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(5000);
+const playlistCreate = z.object({ name: z.string().trim().min(1).max(100), trackIds: trackIdList.default([]) });
+const playlistPatch = z.object({ name: z.string().trim().min(1).max(100).optional(), trackIds: trackIdList.optional() });
+
+function playlistCall<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof PlaylistError) throw new HttpError(err.code === 'NOT_FOUND' ? 404 : 409, err.code, err.message);
+    throw err;
+  }
+}
+
+apiRouter.get('/playlists', (_req, res) => {
+  res.json({ playlists: playlistService.list() });
+});
+
+apiRouter.post('/playlists', (req, res) => {
+  const { name, trackIds } = playlistCreate.parse(req.body);
+  res.status(201).json(playlistCall(() => playlistService.create(name, trackIds)));
+});
+
+apiRouter.get('/playlists/:id', (req, res) => {
+  const { id } = playlistParams.parse(req.params);
+  const playlist = playlistService.get(id);
+  if (!playlist) throw new HttpError(404, 'NOT_FOUND', 'Çalma listesi bulunamadı');
+  res.json(playlist);
+});
+
+apiRouter.patch('/playlists/:id', (req, res) => {
+  const { id } = playlistParams.parse(req.params);
+  res.json(playlistCall(() => playlistService.update(id, playlistPatch.parse(req.body))));
+});
+
+apiRouter.post('/playlists/:id/tracks', (req, res) => {
+  const { id } = playlistParams.parse(req.params);
+  const { trackIds } = z.object({ trackIds: trackIdList.min(1) }).parse(req.body);
+  res.json(playlistCall(() => playlistService.add(id, trackIds)));
+});
+
+apiRouter.delete('/playlists/:id', (req, res) => {
+  const { id } = playlistParams.parse(req.params);
+  res.json({ removed: playlistService.remove(id) });
+});
+
+/** M3U8 olarak indir (mutlak yollar: bu bilgisayardaki oynatıcılar için) */
+apiRouter.get('/playlists/:id/m3u', (req, res) => {
+  const { id } = playlistParams.parse(req.params);
+  const { name, content } = playlistCall(() => playlistService.toM3u(id));
+  res.set('Content-Type', 'audio/x-mpegurl; charset=utf-8');
+  res.attachment(`${name.replace(/[\\/:*?"<>|]+/g, '_') || 'playlist'}.m3u8`);
+  res.send(`﻿${content}`);
+});
+
+/** Müzik klasörüne kaydet (göreli yollar: klasörü telefona / başka bilgisayara kopyalayınca da çalışır) */
+apiRouter.post('/playlists/:id/export', async (req, res) => {
+  const { id } = playlistParams.parse(req.params);
+  const file = await playlistCall(() => playlistService.exportToLibrary(id));
+  res.json({ file });
+});
+
+/** Oynatıcı: şarkı ≥30 sn dinlendi (en çok dinlenenler listesi için) */
+apiRouter.post('/library/tracks/:id/played', (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  res.json({ ok: libraryService.markPlayed(id) });
+});
+
+// --- Takip edilen sanatçılar -------------------------------------------------
+
+const followBody = z.object({
+  id: z.string().regex(/^[0-9]{1,15}$/),
+  name: z.string().trim().min(1).max(200),
+  pictureUrl: z.string().url().max(500).nullable().optional(),
+});
+
+apiRouter.get('/follows', (_req, res) => {
+  res.json({ artists: followService.list() });
+});
+
+apiRouter.post('/follows', (req, res) => {
+  res.status(201).json(followService.follow(followBody.parse(req.body)));
+});
+
+apiRouter.delete('/follows/:id', (req, res) => {
+  const { id } = artistParams.parse(req.params);
+  res.json({ removed: followService.unfollow(id) });
+});
+
+apiRouter.get('/follows/releases', async (_req, res) => {
+  res.json({ releases: await followService.releases() });
 });
 
 // --- İndirme geçmişi (ana sayfa) --------------------------------------------

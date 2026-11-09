@@ -4,6 +4,7 @@ import {
   Download,
   ListMusic,
   Loader2,
+  Maximize2,
   MicVocal,
   Pause,
   Play,
@@ -20,7 +21,10 @@ import {
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { ArtistLinks } from './ArtistLinks';
+import { AddToPlaylist } from './AddToPlaylist';
 import { LyricsPanel } from './LyricsPanel';
+import { NowPlaying } from './NowPlaying';
+import { SleepTimerButton } from './SleepTimer';
 import { usePlayer, usePlayerProgress } from '../state/PlayerProvider';
 
 const clock = (s: number) => {
@@ -61,7 +65,7 @@ function Slider({
   );
 }
 
-function SeekBar() {
+export function SeekBar() {
   const { seek } = usePlayer();
   const { time, duration } = usePlayerProgress();
   const { t } = useI18n();
@@ -161,6 +165,7 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
   const p = usePlayer();
   const [showQueue, setShowQueue] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
+  const [showNowPlaying, setShowNowPlaying] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
   const track = p.current;
 
@@ -181,15 +186,30 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-2.5 sm:gap-5 sm:px-6">
         {/* Parça */}
         <div className="flex min-w-0 flex-1 items-center gap-3 md:w-[28%] md:flex-none">
-          <span className="relative size-12 shrink-0 overflow-hidden rounded-md bg-raised shadow-md shadow-black/30">
+          <button
+            type="button"
+            onClick={() => setShowNowPlaying(true)}
+            title={t('nowPlaying.open')}
+            aria-label={t('nowPlaying.open')}
+            className="group/cover relative size-12 shrink-0 overflow-hidden rounded-md bg-raised shadow-md shadow-black/30"
+          >
             {track.coverUrl && !coverFailed ? (
               <img src={track.coverUrl} alt="" className="size-full object-cover" onError={() => setCoverFailed(true)} />
             ) : (
               <Disc3 className={clsx('m-2.5 size-7 text-fade', p.playing && 'animate-record')} strokeWidth={1.5} />
             )}
-          </span>
+            <span className="absolute inset-0 grid place-items-center bg-black/50 text-white opacity-0 transition group-hover/cover:opacity-100">
+              <Maximize2 className="size-4" />
+            </span>
+          </button>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-paper">{track.title}</span>
+            <button
+              type="button"
+              onClick={() => setShowNowPlaying(true)}
+              className="block max-w-full truncate text-left text-sm font-semibold text-paper hover:underline"
+            >
+              {track.title}
+            </button>
             <span className="flex items-center gap-1.5 text-xs text-dust">
               {track.kind === 'preview' && (
                 <span className="shrink-0 rounded bg-raised px-1.5 py-px text-[10px] font-bold tracking-wide text-fade uppercase">
@@ -271,6 +291,8 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
           >
             <MicVocal className="size-[18px]" />
           </button>
+          {track.libraryId && <AddToPlaylist trackIds={[track.libraryId]} className="hidden xl:grid" />}
+          <SleepTimerButton className="hidden xl:grid" />
           {track.kind === 'preview' && track.sourceUrl && (
             <button
               type="button"
@@ -319,7 +341,8 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
           </button>
         </div>
       </div>
-      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
+      {showLyrics && !showNowPlaying && <LyricsPanel onClose={() => setShowLyrics(false)} />}
+      {showNowPlaying && <NowPlaying onClose={() => setShowNowPlaying(false)} onDownload={onDownload} />}
       {/* Mobilde ince ilerleme çizgisi */}
       <MobileProgress />
     </div>

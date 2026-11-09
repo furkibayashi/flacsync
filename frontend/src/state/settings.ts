@@ -84,6 +84,22 @@ export function useTheme(): [Theme, (t: Theme) => void] {
   return [theme, setTheme];
 }
 
+// --- Tasarım stili (renkten bağımsız: köşe, yazı tipi, boşluk, gölge, doku) ----------------------
+
+export const STYLES = ['classic', 'soft', 'compact', 'minimal', 'retro', 'glass'] as const;
+export type DesignStyle = (typeof STYLES)[number];
+const isStyle = (v: unknown): v is DesignStyle => typeof v === 'string' && (STYLES as readonly string[]).includes(v);
+
+export function useDesignStyle(): [DesignStyle, (s: DesignStyle) => void] {
+  const [style, setStyle] = useStoredState<DesignStyle>('flacsync.style', 'classic', isStyle);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (style === 'classic') root.removeAttribute('data-style');
+    else root.setAttribute('data-style', style);
+  }, [style]);
+  return [style, setStyle];
+}
+
 // --- Diğer tercihler -----------------------------------------------------------
 
 const isUnit = (v: unknown): v is number => typeof v === 'number' && v >= 0 && v <= 1;

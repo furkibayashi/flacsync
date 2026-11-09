@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { downloaderService, type DownloadedFile, type OutputFormat, type TagExtras } from './downloader.service.js';
 import { historyService } from './history.service.js';
+import { genreService } from './genre.service.js';
 import { libraryService } from './library.service.js';
 import { metadataService } from './metadata.service.js';
 import type { Platform, TrackMetadata } from './metadata/types.js';
@@ -451,7 +452,13 @@ export class JobsService {
       const metadata = applyOverrides(extraction.metadata, job.options.overrides);
       this.update(job, { platform: extraction.platform, metadata, progress: 6, message: STAGE_MESSAGE.resolving });
 
+      // Tür, ses kaynağı eşleştirilirken paralel bulunur (Deezer'ın "Pop" varsayılanına güvenilmez)
+      const genrePromise = genreService
+        .resolve({ title: metadata.title, artist: metadata.artist, album: metadata.album, hint: metadata.genre })
+        .catch(() => null);
       const source = await resolverService.resolve(metadata);
+      const genre = await genrePromise;
+      if (genre?.genre) metadata.genre = genre.genre;
       checkCancelled();
       marks.push(Date.now());
       this.update(job, { source: toPublicSource(source), progress: STAGE_RANGE.resolving[1] });

@@ -1,8 +1,7 @@
-import { rename, rm, stat } from 'node:fs/promises';
-import { extname, join, parse } from 'node:path';
+import { extname } from 'node:path';
 import NodeID3 from 'node-id3';
 import { readTags } from '../../utils/audio-tags.js';
-import { runFfmpeg } from '../../utils/ffmpeg.js';
+import { rewriteFlacTags } from '../../utils/tag-writer.js';
 import { LyricsTagWriteError } from './errors.js';
 import { parseLrc } from './lrc.js';
 import type { EmbedFormat, Lyrics } from './types.js';
@@ -82,17 +81,9 @@ export async function embedLyricsInFile(file: string, lyrics: Lyrics): Promise<v
 
   const args = vorbisLyricsArgs(lyrics);
   if (args.length === 0) return;
-  const { dir, name } = parse(file);
-  const tmp = join(dir, `.${name}.lyrics-${process.pid}.flac`);
   try {
-    // -map 0: ses + gömülü kapak; -map_metadata 0: mevcut etiketler korunur
-    await runFfmpeg({ inputs: [file], output: tmp, args: ['-map', '0', '-map_metadata', '0', '-c', 'copy', '-y', ...args] });
-    const [before, after] = await Promise.all([stat(file), stat(tmp)]);
-    // Basit bütünlük denetimi: ses kopyalandığı için boyut neredeyse aynı kalmalı
-    if (after.size < before.size * 0.9) throw new Error(`Çıktı beklenenden küçük (${after.size} < ${before.size})`);
-    await rename(tmp, file);
+    await rewriteFlacTags(file, args, 'lyrics');
   } catch (err) {
-    await rm(tmp, { force: true }).catch(() => undefined);
     throw new LyricsTagWriteError(file, `FLAC sözleri yazılamadı: ${(err as Error).message}`, { cause: err });
   }
 }

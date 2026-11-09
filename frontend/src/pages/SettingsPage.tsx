@@ -23,7 +23,17 @@ import { useI18n } from '../i18n/I18nProvider';
 import { LANG_LOCALE, LANG_NAMES, LANGS } from '../i18n/translations';
 import { formatBytes } from '../lib/format';
 import { updateActions, useAppUpdate } from '../state/appUpdate';
-import { THEMES, THEME_SWATCH, useAutoUpdateSetting, useTheme, useVolumeSetting, type Theme } from '../state/settings';
+import {
+  STYLES,
+  THEMES,
+  THEME_SWATCH,
+  useAutoUpdateSetting,
+  useDesignStyle,
+  useTheme,
+  useVolumeSetting,
+  type DesignStyle,
+  type Theme,
+} from '../state/settings';
 
 const REPO_URL = 'https://github.com/furkibayashi/flacsync';
 
@@ -128,6 +138,68 @@ function ThemeCard({ theme, active, onSelect }: { theme: Theme; active: boolean;
       <span className="flex items-center justify-between bg-panel px-3 py-2 text-sm font-semibold text-paper">
         {t(`theme.${theme}` as const)}
         {active && <Check className="size-4 text-amber" />}
+      </span>
+    </button>
+  );
+}
+
+/** Stil önizlemesi: köşe yarıçapı, yazı tipi, gölge ve doku temsili olarak çizilir */
+const STYLE_PREVIEW: Record<DesignStyle, { radius: number; font: string; shadow: boolean; grain?: boolean; glass?: boolean; dense?: boolean }> = {
+  classic: { radius: 10, font: '"Bricolage Grotesque", sans-serif', shadow: true },
+  soft: { radius: 18, font: '"Bricolage Grotesque", sans-serif', shadow: true },
+  compact: { radius: 8, font: '"Bricolage Grotesque", sans-serif', shadow: true, dense: true },
+  minimal: { radius: 0, font: '"Instrument Sans", sans-serif', shadow: false },
+  retro: { radius: 3, font: '"Space Mono", monospace', shadow: true, grain: true },
+  glass: { radius: 14, font: '"Bricolage Grotesque", sans-serif', shadow: true, glass: true },
+};
+
+function StyleCard({ style, active, onSelect }: { style: DesignStyle; active: boolean; onSelect: () => void }) {
+  const { t } = useI18n();
+  const p = STYLE_PREVIEW[style];
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className={clsx('overflow-hidden rounded-xl text-left ring-2 transition', active ? 'ring-amber' : 'ring-rule hover:ring-dust')}
+    >
+      <span
+        className="relative block h-24 overflow-hidden bg-night p-3"
+        style={
+          p.glass
+            ? {
+                backgroundImage:
+                  'radial-gradient(80px 80px at 85% 20%, color-mix(in srgb, var(--color-amber) 45%, transparent), transparent 70%), radial-gradient(90px 90px at 10% 100%, color-mix(in srgb, var(--color-flac) 50%, transparent), transparent 70%)',
+              }
+            : undefined
+        }
+      >
+        {p.grain && <span aria-hidden className="np-grain absolute inset-0 opacity-20" />}
+        <span
+          className="relative flex h-full flex-col justify-between p-2.5"
+          style={{
+            borderRadius: p.radius,
+            background: p.glass ? 'color-mix(in srgb, var(--color-raised) 55%, transparent)' : 'var(--color-raised)',
+            backdropFilter: p.glass ? 'blur(6px)' : undefined,
+            boxShadow: p.shadow ? '0 8px 18px -8px rgb(0 0 0 / .6)' : 'none',
+            gap: p.dense ? 2 : 6,
+          }}
+        >
+          <span className="text-lg leading-none font-bold text-paper" style={{ fontFamily: p.font, textTransform: style === 'retro' ? 'uppercase' : undefined }}>
+            Aa
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-4 w-12 bg-amber" style={{ borderRadius: p.radius === 0 ? 0 : Math.min(p.radius, 999) }} />
+            <span className="h-4 w-6 bg-rule" style={{ borderRadius: p.radius === 0 ? 0 : p.radius }} />
+          </span>
+        </span>
+      </span>
+      <span className="flex items-center justify-between bg-panel px-3 py-2 text-sm font-semibold text-paper">
+        <span>
+          {t(`style.${style}` as 'style.classic')}
+          <span className="block text-[11px] font-normal text-fade">{t(`style.${style}.hint` as 'style.classic.hint')}</span>
+        </span>
+        {active && <Check className="size-4 shrink-0 text-amber" />}
       </span>
     </button>
   );
@@ -289,6 +361,7 @@ function UpdatePanel() {
 export function SettingsPage() {
   const { t, lang, setLang } = useI18n();
   const [theme, setTheme] = useTheme();
+  const [designStyle, setDesignStyle] = useDesignStyle();
   const [volume, setVolume] = useVolumeSetting();
   const [format, setFormat] = usePreferredFormat();
   const [info, setInfo] = useState<{ version: string; saveDir: string } | null>(null);
@@ -319,6 +392,15 @@ export function SettingsPage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {THEMES.map((th) => (
               <ThemeCard key={th} theme={th} active={theme === th} onSelect={() => setTheme(th)} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="font-semibold text-paper">{t('settings.style')}</p>
+          <p className="mt-0.5 mb-3 text-sm text-dust">{t('settings.styleHint')}</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {STYLES.map((st) => (
+              <StyleCard key={st} style={st} active={designStyle === st} onSelect={() => setDesignStyle(st)} />
             ))}
           </div>
         </div>
