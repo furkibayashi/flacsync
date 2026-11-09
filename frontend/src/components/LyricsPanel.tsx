@@ -46,35 +46,146 @@ export function useTrackLyrics() {
   return { state, lyrics: state.status === 'ready' ? state.lyrics : null, saved, save };
 }
 
+/** Satırın ne kadarının söylendiğini tahmin etmek için: harf başına süre ve sınırlar (ms) */
+const MS_PER_CHAR = 115;
+const MIN_SUNG_MS = 900;
+/** Ses ve ekran arasındaki küçük gecikme payı */
+const LEAD_MS = 120;
+
+interface WordTiming {
+  text: string;
+  /** Satırın söylenen süresi içindeki başlangıç / bitiş (0-1) */
+  from: number;
+  to: number;
+}
+
 /**
- * Söz satırları. Tam şarkılarda satırlar şarkıyla akar, tıklanınca oraya atlar.
- * `size="lg"`: Şimdi çalıyor ekranındaki büyük gösterim.
+ * LRC yalnızca satır başlangıçlarını verir. Kelimelerin ne zaman söylendiği, satırın söylenme
+ * süresi harf sayısına göre tahmin edilip kelimelere uzunluklarıyla orantılı paylaştırılarak bulunur.
+ */
+function wordTimings(text: string): WordTiming[] {
+  const words = text.split(/(\s+)/).filter((w) => w.length > 0);
+  const weights = words.map((w) => (/^\s+$/.test(w) ? 0 : w.length + 1));
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  let acc = 0;
+  return words.map((w, i) => {
+    const from = acc / total;
+    acc += weights[i]!;
+    return { text: w, from, to: acc / total };
+  });
+}
+
+function sungDuration(text: string, gapMs: number): number {
+  // Hızlı satırlarda (rap) bir sonraki satıra kadar olan süre belirler, yavaşlarda harf sayısı
+  return Math.min(gapMs * 0.88, Math.max(MIN_SUNG_MS, text.replace(/\s+/g, '').length * MS_PER_CHAR + 500));
+}
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * Çalan satır: kelimeler söylendikçe soldan sağa renklenir (karaoke). Saniyede 60 kez güncellenir;
+ * React yeniden çizimi yapılmaz, yalnızca CSS değişkeni değişir.
+ */
+function KaraokeLine({ text, startMs, endMs, className }: { text: string; startMs: number; endMs: number; className: string }) {
+  const { getTime } = usePlayer();
+  const ref = useRef<HTMLSpanElement>(null);
+  const words = useMemo(() => wordTimings(text), [text]);
+  const sung = sungDuration(text, endMs - startMs);
+
+  useEffect(() => {
+    let raf = 0;
+    const spans = ref.current ? [...ref.current.querySelectorAll<HTMLElement>('[data-w]')] : [];
+    const tick = () => {
+      const f = clamp01((getTime() * 1000 + LEAD_MS - startMs) / sung);
+      spans.forEach((el, i) => {
+        const w = words[i]!;
+        const v = w.to > w.from ? clamp01((f - w.from) / (w.to - w.from)) : f >= w.to ? 1 : 0;
+        el.style.setProperty('--w', String(v));
+      });
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [getTime, startMs, sung, words]);
+
+  return (
+    <span ref={ref} className={className}>
+      {words.map((w, i) =>
+        /^\s+$/.test(w.text) ? (
+          <span key={i} data-w>
+            {w.text}
+          </span>
+        ) : (
+          <span key={i} data-w className="karaoke-word">
+            {w.text}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
+/** Enstrümantal ara: üç nokta sırayla dolar */
+function GapDots({ startMs, endMs, active }: { startMs: number; endMs: number; active: boolean }) {
+  const { getTime } = usePlayer();
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    let raf = 0;
+    const dots = ref.current ? [...ref.current.children] as HTMLElement[] : [];
+    const tick = () => {
+      const f = clamp01((getTime() * 1000 - startMs) / Math.max(1, endMs - startMs));
+      dots.forEach((d, i) => d.style.setProperty('--w', String(clamp01(f * 3 - i))));
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [active, getTime, startMs, endMs]);
+  return (
+    <span ref={ref} className={clsx('inline-flex gap-2 py-2', !active && 'opacity-40')} aria-label="♪">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="gap-dot size-2.5 rounded-full" />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Söz satırları. Tam şarkılarda kelimeler söylendikçe renklenir, satır ortada tutulur,
+ * bir satıra tıklayınca şarkı oraya atlar. `size="lg"`: Şimdi çalıyor ekranındaki büyük gösterim.
  */
 export function LyricsLines({ state, size = 'md' }: { state: LoadState; size?: 'md' | 'lg' }) {
   const { t } = useI18n();
   const { current, seek } = usePlayer();
   const { time } = usePlayerProgress();
-  const listRef = useRef<HTMLOListElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const lyrics = state.status === 'ready' ? state.lyrics : null;
   const lines = useMemo(() => (lyrics?.synced ? parseLrc(lyrics.synced) : []), [lyrics]);
   // Önizleme 30 sn'lik bir kesit: zamanlar tam şarkıya göre olduğu için akış yalnızca tam şarkıda
   const synced = lines.length > 0 && current?.kind === 'full';
-  const active = synced ? activeLine(lines, time * 1000 + 250) : -1;
+  const active = synced ? activeLine(lines, time * 1000 + LEAD_MS) : -1;
 
   useEffect(() => setFollow(true), [current?.id]);
 
+  // Yalnızca söz kutusu kaydırılır (scrollIntoView tüm ekranı da kaydırıp üst çubuğu gizliyordu)
   useEffect(() => {
-    if (!follow || active < 0) return;
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-line="${active}"]`)
-      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const scroller = scrollerRef.current;
+    if (!follow || !scroller) return;
+    const el = scroller.querySelector<HTMLElement>(`[data-line="${Math.max(active, 0)}"]`);
+    if (!el) return;
+    scroller.scrollTo({ top: Math.max(0, el.offsetTop - scroller.clientHeight * 0.32), behavior: 'smooth' });
   }, [active, follow]);
 
-  const text = size === 'lg' ? 'text-[26px] sm:text-[32px]' : 'text-[22px]';
+  const text = size === 'lg' ? 'text-[26px] sm:text-[34px]' : 'text-[22px]';
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-8" onWheel={() => setFollow(false)} onTouchMove={() => setFollow(false)}>
+    <div
+      ref={scrollerRef}
+      className="lyrics-mask relative min-h-0 flex-1 overflow-y-auto px-6 py-8"
+      onWheel={() => setFollow(false)}
+      onTouchMove={() => setFollow(false)}
+    >
       {state.status === 'loading' && (
         <div className="grid h-full place-items-center text-dust">
           <Loader2 className="size-6 animate-spin" />
@@ -87,30 +198,41 @@ export function LyricsLines({ state, size = 'md' }: { state: LoadState; size?: '
       )}
 
       {lines.length > 0 ? (
-        <ol ref={listRef} className="space-y-4 pb-[40vh]">
+        <ol className={clsx('pt-[20vh] pb-[45vh]', size === 'lg' ? 'space-y-6' : 'space-y-4')}>
           {current?.kind === 'preview' && <li className="text-sm text-fade">{t('lyrics.previewNote')}</li>}
-          {lines.map((line, i) => (
-            <li key={`${line.timeMs}-${i}`} data-line={i}>
-              <button
-                type="button"
-                disabled={!synced}
-                onClick={() => {
-                  seek(line.timeMs / 1000);
-                  setFollow(true);
-                }}
-                className={clsx(
-                  'text-left font-display leading-snug font-bold transition-[color,transform] duration-300 disabled:cursor-text',
-                  text,
-                  !synced && 'text-paper/80',
-                  synced && i === active && 'origin-left scale-[1.02] text-amber',
-                  synced && i < active && 'text-paper/45 hover:text-paper/80',
-                  synced && i > active && 'text-paper/75 hover:text-paper',
-                )}
-              >
-                {line.text || '♪'}
-              </button>
-            </li>
-          ))}
+          {lines.map((line, i) => {
+            const isActive = synced && i === active;
+            const endMs = lines[i + 1]?.timeMs ?? line.timeMs + 6000;
+            const base = clsx('font-display leading-snug font-bold', text);
+            return (
+              <li key={`${line.timeMs}-${i}`} data-line={i}>
+                <button
+                  type="button"
+                  disabled={!synced}
+                  onClick={() => {
+                    seek(line.timeMs / 1000);
+                    setFollow(true);
+                  }}
+                  className={clsx(
+                    'block origin-left text-left transition-[opacity,transform,filter] duration-500 disabled:cursor-text',
+                    !synced && 'text-paper/80',
+                    isActive && 'scale-[1.03]',
+                    synced && i < active && 'text-paper/40 hover:text-paper/75',
+                    synced && i > active && 'text-paper/70 hover:text-paper',
+                    synced && Math.abs(i - active) > 3 && 'blur-[0.6px]',
+                  )}
+                >
+                  {!line.text ? (
+                    <GapDots startMs={line.timeMs} endMs={endMs} active={isActive} />
+                  ) : isActive ? (
+                    <KaraokeLine text={line.text} startMs={line.timeMs} endMs={endMs} className={clsx(base, 'karaoke-glow')} />
+                  ) : (
+                    <span className={base}>{line.text}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ol>
       ) : (
         lyrics?.plain && (

@@ -112,7 +112,10 @@ function QueuePopover({ onClose }: { onClose: () => void }) {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
-    ref.current?.querySelector<HTMLElement>('[aria-current="true"]')?.scrollIntoView({ block: 'center' });
+    // Yalnızca liste kaydırılır (scrollIntoView sayfayı da kaydırabiliyor)
+    const list = ref.current?.querySelector<HTMLElement>('ol');
+    const item = list?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (list && item) list.scrollTop = item.offsetTop - list.clientHeight / 2 + item.offsetHeight / 2;
     return () => {
       window.removeEventListener('pointerdown', onDown);
       window.removeEventListener('keydown', onKey);
@@ -127,7 +130,7 @@ function QueuePopover({ onClose }: { onClose: () => void }) {
       <p className="border-b border-rule px-4 py-3 font-display text-sm font-bold text-paper">
         {t('player.queueTitle', { count: queue.length })}
       </p>
-      <ol className="max-h-80 overflow-y-auto py-1">
+      <ol className="relative max-h-80 overflow-y-auto py-1">
         {queue.map((track, i) => (
           <li key={`${track.id}-${i}`}>
             <button

@@ -46,6 +46,8 @@ interface PlayerActions {
   next: () => void;
   prev: () => void;
   seek: (seconds: number) => void;
+  /** Anlık konum (sn) — saniyede 60 kez okunabilir (sözlerin kelime kelime akışı için) */
+  getTime: () => number;
   setVolume: (v: number) => void;
   toggleMute: () => void;
   toggleShuffle: () => void;
@@ -287,6 +289,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const cycleRepeat = useCallback(() => setRepeat((r) => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')), []);
 
+  const getTime = useCallback(() => audioRef.current?.currentTime ?? 0, []);
+
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
     if (audio && Number.isFinite(seconds)) {
@@ -423,6 +427,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       next,
       prev,
       seek,
+      getTime,
       setVolume,
       toggleMute: () => setMuted((m) => !m),
       toggleShuffle,
@@ -435,7 +440,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       sleepTimer,
       setSleepTimer,
     }),
-    [queue, index, current, playing, loading, shuffle, repeat, volume, muted, error, playList, toggleTrack, toggle, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, close, sleepTimer, setSleepTimer],
+    [queue, index, current, playing, loading, shuffle, repeat, volume, muted, error, playList, toggleTrack, toggle, next, prev, seek, getTime, setVolume, toggleShuffle, cycleRepeat, close, sleepTimer, setSleepTimer],
   );
 
   return (

@@ -16,6 +16,7 @@ import {
   Volume1,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -82,12 +83,26 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-night/40 via-night/70 to-night" />
       <div aria-hidden className="np-grain pointer-events-none absolute inset-0 opacity-[0.07]" />
 
-      <header className="relative flex items-center justify-between px-5 py-4 sm:px-8">
-        <button type="button" onClick={onClose} aria-label={t('nowPlaying.close')} title={t('nowPlaying.close')} className={round(false)}>
-          <ChevronDown className="size-6" />
+      <header className="relative z-10 flex shrink-0 items-center justify-between gap-3 px-5 py-4 sm:px-8">
+        <button
+          type="button"
+          onClick={onClose}
+          title={`${t('nowPlaying.close')} (Esc)`}
+          className="inline-flex items-center gap-2 rounded-full bg-white/10 py-2 pr-4 pl-3 text-sm font-semibold text-paper ring-1 ring-white/15 backdrop-blur transition hover:bg-white/20"
+        >
+          <ChevronDown className="size-5" />
+          {t('nowPlaying.close')}
         </button>
-        <p className="text-xs font-bold tracking-[0.2em] text-paper/60 uppercase">{t('nowPlaying.title')}</p>
-        <span className="size-11" />
+        <p className="hidden text-xs font-bold tracking-[0.2em] text-paper/60 uppercase sm:block">{t('nowPlaying.title')}</p>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('nowPlaying.close')}
+          title={`${t('nowPlaying.close')} (Esc)`}
+          className="grid size-10 place-items-center rounded-full bg-white/10 text-paper ring-1 ring-white/15 transition hover:bg-white/20"
+        >
+          <X className="size-5" />
+        </button>
       </header>
 
       <div className="relative grid min-h-0 flex-1 gap-8 overflow-y-auto px-5 pb-8 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-12 lg:overflow-hidden lg:px-14">

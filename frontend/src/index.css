@@ -303,3 +303,37 @@ body {
 .np-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* --- Karaoke sözler: kelime söylendikçe soldan sağa vurgu rengiyle dolar (--w: 0…1) --- */
+.karaoke-word {
+  --w: 0;
+  background-image: linear-gradient(
+    90deg,
+    var(--color-amber) calc(var(--w) * 100%),
+    color-mix(in srgb, var(--color-paper) 58%, transparent) calc(var(--w) * 100%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.karaoke-glow {
+  filter: drop-shadow(0 0 22px color-mix(in srgb, var(--color-amber) 30%, transparent));
+}
+/* Enstrümantal ara noktaları */
+.gap-dot {
+  --w: 0;
+  background: var(--color-amber);
+  opacity: calc(0.22 + var(--w) * 0.78);
+  transform: scale(calc(0.75 + var(--w) * 0.45));
+  transition: opacity 0.15s linear, transform 0.15s linear;
+}
+/* Söz kutusunun üst ve alt kenarı yumuşakça kaybolur */
+.lyrics-mask {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 9%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 9%, #000 86%, transparent 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .karaoke-word {
+    --w: 1 !important;
+  }
+}

@@ -383,7 +383,7 @@ const de: Record<TranslationKey, string> = {
   'follow.noReleases': "Keine Neuerscheinungen deiner Künstler in den letzten 4 Monaten.",
   'nowPlaying.title': "Läuft gerade",
   'nowPlaying.open': "Vollbild-Player öffnen",
-  'nowPlaying.close': "Verkleinern",
+  'nowPlaying.close': "Zurück",
   'sleep.title': "Sleep-Timer",
   'sleep.minutes': "In {min} Minuten",
   'sleep.endOfTrack': "Am Ende des Songs",

@@ -383,7 +383,7 @@ const ru: Record<TranslationKey, string> = {
   'follow.noReleases': "За последние 4 месяца новинок нет.",
   'nowPlaying.title': "Сейчас играет",
   'nowPlaying.open': "Открыть экран «Сейчас играет»",
-  'nowPlaying.close': "Свернуть",
+  'nowPlaying.close': "Назад",
   'sleep.title': "Таймер сна",
   'sleep.minutes': "Через {min} мин",
   'sleep.endOfTrack': "В конце песни",

@@ -383,7 +383,7 @@ const es: Record<TranslationKey, string> = {
   'follow.noReleases': "Nada nuevo de tus artistas en los últimos 4 meses.",
   'nowPlaying.title': "Sonando ahora",
   'nowPlaying.open': "Abrir la pantalla de reproducción",
-  'nowPlaying.close': "Minimizar",
+  'nowPlaying.close': "Volver",
   'sleep.title': "Temporizador",
   'sleep.minutes': "En {min} minutos",
   'sleep.endOfTrack': "Al acabar esta canción",

@@ -383,7 +383,7 @@ const fr: Record<TranslationKey, string> = {
   'follow.noReleases': "Rien de neuf de tes artistes ces 4 derniers mois.",
   'nowPlaying.title': "En cours de lecture",
   'nowPlaying.open': "Ouvrir l’écran de lecture",
-  'nowPlaying.close': "Réduire",
+  'nowPlaying.close': "Retour",
   'sleep.title': "Minuterie de sommeil",
   'sleep.minutes': "Dans {min} minutes",
   'sleep.endOfTrack': "À la fin du titre",
