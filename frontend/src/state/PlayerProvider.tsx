@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../services/api';
-import { useVolumeSetting } from './settings';
+import { AudioEngine, EQ_PRESETS } from './audioEngine';
+import { useCrossfadeSetting, useEqCustomSetting, useEqPresetSetting, useNormalizeSetting, useVolumeSetting } from './settings';
 
 /** Oynatıcıda çalınabilen her şey: 30 sn önizlemeler ve kütüphanedeki tam dosyalar. */
 export interface PlayerTrack {
@@ -19,6 +20,8 @@ export interface PlayerTrack {
   duration?: number | null;
   /** Kütüphane kaydı (sözler dosyadan okunur / dosyaya gömülür) */
   libraryId?: string;
+  /** Ölçülen yükseklik (LUFS) — ses eşitleme için */
+  loudness?: number | null;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -84,8 +87,15 @@ const isTyping = (el: EventTarget | null) =>
   el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const engineRef = useRef<AudioEngine | null>(null);
+  if (!engineRef.current && typeof Audio !== 'undefined') engineRef.current = new AudioEngine();
+  /** Her zaman o an çalan öğeyi verir (önizleme ya da deck) */
+  const audioRef = useMemo(() => ({ get current() { return engineRef.current?.active ?? null; } }), []);
   const [volume, setVolumeSetting] = useVolumeSetting();
+  const [normalize] = useNormalizeSetting();
+  const [crossfadeSec] = useCrossfadeSetting();
+  const [eqPreset] = useEqPresetSetting();
+  const [eqCustom] = useEqCustomSetting();
   const [muted, setMuted] = useState(false);
   const [queue, setQueue] = useState<PlayerTrack[]>([]);
   /** Karıştırma kapatılınca dönülecek asıl sıra */
@@ -105,39 +115,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const current = index >= 0 ? queue[index] ?? null : null;
 
-  // Tek ses öğesi; uygulama boyunca yaşar
-  if (!audioRef.current && typeof Audio !== 'undefined') {
-    audioRef.current = new Audio();
-    audioRef.current.preload = 'auto';
-  }
-
+  useEffect(() => engineRef.current?.setVolume(perceptual(volume)), [volume]);
+  useEffect(() => engineRef.current?.setMuted(muted), [muted]);
+  useEffect(() => engineRef.current?.setNormalize(normalize), [normalize]);
   useEffect(() => {
-    const audio = audioRef.current;
-    if (audio) audio.volume = perceptual(volume);
-  }, [volume]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (audio) audio.muted = muted;
-  }, [muted]);
+    engineRef.current?.setEq(eqPreset === 'custom' ? eqCustom : EQ_PRESETS[eqPreset] ?? EQ_PRESETS.flat!);
+  }, [eqPreset, eqCustom]);
 
   // Parça değişince kaynağı yükle ve çal
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    crossfadingRef.current = false;
     if (!current) {
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
+      engine.stopAll();
       return;
     }
-    if (audio.src !== new URL(current.src, window.location.href).href) {
-      audio.src = current.src;
-      setProgress({ time: 0, duration: 0 });
-    } else {
-      audio.currentTime = 0;
-    }
+    const { el: audio, reused, started } = engine.load(current.src, current.kind, current.loudness);
     setError(false);
+    if (started) {
+      // Crossfade ile zaten başladı
+      setProgress({ time: audio.currentTime, duration: Number.isFinite(audio.duration) ? audio.duration : 0 });
+      setPlaying(true);
+      return;
+    }
+    if (!reused) setProgress({ time: 0, duration: 0 });
+    else audio.currentTime = 0;
     setLoading(true);
     void audio.play().catch((err: Error) => {
       if (err.name !== 'AbortError') {
@@ -149,11 +152,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [current, playNonce]);
 
   const advance = useCallback(
-    (direction: 1 | -1, auto: boolean) => {
+    (direction: 1 | -1, auto: boolean, crossfaded = false) => {
       if (queue.length === 0) return;
       const go = (i: number) => {
         setIndex(i);
-        setPlayNonce((n) => n + 1);
+        if (!crossfaded) setPlayNonce((n) => n + 1);
       };
       if (auto && repeat === 'one') {
         const audio = audioRef.current;
@@ -186,54 +189,78 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Ses olayları
   const advanceRef = useRef(advance);
   advanceRef.current = advance;
+  const crossfadingRef = useRef(false);
+  const crossfadeRef = useRef(crossfadeSec);
+  crossfadeRef.current = crossfadeSec;
+  /** Boşluksuz / crossfade için sıradaki tam şarkı (tekrar-tek modunda yok) */
+  const nextFullRef = useRef<PlayerTrack | null>(null);
+  {
+    const nextIdx = index + 1 < queue.length ? index + 1 : repeat === 'all' ? 0 : -1;
+    const candidate = repeat === 'one' || nextIdx < 0 ? null : queue[nextIdx] ?? null;
+    nextFullRef.current = candidate && candidate.kind === 'full' && current?.kind === 'full' ? candidate : null;
+  }
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const engine = engineRef.current;
+    if (!engine) return;
     let lastTick = 0;
-    const onTime = () => {
+    const onTimeRaw = (audio: HTMLAudioElement) => {
+      const remaining = audio.duration - audio.currentTime;
+      const nextTrack = nextFullRef.current;
+      // Sıradaki tam şarkı: son 10 sn'de önceden yüklenir; crossfade açıksa süresi gelince geçilir
+      if (nextTrack && Number.isFinite(remaining) && audio !== engine.preview) {
+        if (remaining < 10) engine.preload(nextTrack.src);
+        const cf = crossfadeRef.current;
+        if (cf > 0 && remaining <= cf && !crossfadingRef.current && audio.duration > cf * 3) {
+          crossfadingRef.current = true;
+          engine.crossfade(nextTrack.src, cf, nextTrack.loudness);
+          advanceRef.current(1, true, true);
+        }
+      }
       const now = performance.now();
       if (now - lastTick < 200) return;
       lastTick = now;
       setProgress({ time: audio.currentTime, duration: Number.isFinite(audio.duration) ? audio.duration : 0 });
     };
-    const onMeta = () => setProgress({ time: audio.currentTime, duration: Number.isFinite(audio.duration) ? audio.duration : 0 });
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onPlaying = () => setLoading(false);
-    const onWaiting = () => setLoading(true);
-    const onEnded = () => {
+    const guard = (fn: (audio: HTMLAudioElement) => void) => (e: Event) => {
+      if (e.currentTarget === engine.active) fn(e.currentTarget as HTMLAudioElement);
+    };
+    const onTime = guard(onTimeRaw);
+    const onMeta = guard((audio) =>
+      setProgress({ time: audio.currentTime, duration: Number.isFinite(audio.duration) ? audio.duration : 0 }),
+    );
+    const onPlay = guard(() => setPlaying(true));
+    const onPause = guard(() => setPlaying(false));
+    const onPlaying = guard(() => setLoading(false));
+    const onWaiting = guard(() => setLoading(true));
+    const onEnded = guard(() => {
       if (sleepRef.current?.kind === 'track') {
         setSleepTimerState(null);
         setPlaying(false);
         return;
       }
+      if (crossfadingRef.current) return;
       advanceRef.current(1, true);
-    };
-    const onError = () => {
+    });
+    const onError = guard((audio) => {
       if (!audio.getAttribute('src')) return;
       setError(true);
       setLoading(false);
       setPlaying(false);
-    };
-    audio.addEventListener('timeupdate', onTime);
-    audio.addEventListener('loadedmetadata', onMeta);
-    audio.addEventListener('durationchange', onMeta);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
-    audio.addEventListener('playing', onPlaying);
-    audio.addEventListener('waiting', onWaiting);
-    audio.addEventListener('ended', onEnded);
-    audio.addEventListener('error', onError);
+    });
+    const events: Array<[string, (e: Event) => void]> = [
+      ['timeupdate', onTime],
+      ['loadedmetadata', onMeta],
+      ['durationchange', onMeta],
+      ['play', onPlay],
+      ['pause', onPause],
+      ['playing', onPlaying],
+      ['waiting', onWaiting],
+      ['ended', onEnded],
+      ['error', onError],
+    ];
+    for (const el of engine.elements) for (const [name, fn] of events) el.addEventListener(name, fn);
     return () => {
-      audio.removeEventListener('timeupdate', onTime);
-      audio.removeEventListener('loadedmetadata', onMeta);
-      audio.removeEventListener('durationchange', onMeta);
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('playing', onPlaying);
-      audio.removeEventListener('waiting', onWaiting);
-      audio.removeEventListener('ended', onEnded);
-      audio.removeEventListener('error', onError);
+      for (const el of engine.elements) for (const [name, fn] of events) el.removeEventListener(name, fn);
     };
   }, []);
 
@@ -321,21 +348,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // --- Uyku zamanlayıcı: süre dolunca 8 sn'de sesi kısıp durdurur --------------------------------
   const fadeAndStop = useCallback(() => {
-    const audio = audioRef.current;
     setSleepTimerState(null);
-    if (!audio || audio.paused) return;
-    const start = audio.volume;
-    const steps = 32;
-    let i = 0;
-    const timer = setInterval(() => {
-      i++;
-      audio.volume = Math.max(0, start * (1 - i / steps));
-      if (i >= steps) {
-        clearInterval(timer);
-        audio.pause();
-        audio.volume = start;
-      }
-    }, 250);
+    engineRef.current?.fadeOutAndPause(8);
   }, []);
 
   useEffect(() => {

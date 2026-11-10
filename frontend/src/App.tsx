@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Downloader } from './components/Downloader';
+import { DesktopBridge } from './components/DesktopBridge';
 import { PlayerBar } from './components/PlayerBar';
 import { MobileNav, Sidebar, Wordmark } from './components/Sidebar';
 import { usePreferredFormat } from './hooks/usePreferredFormat';
@@ -98,6 +99,7 @@ function Shell() {
       </div>
 
       <PlayerBar onDownload={(url) => void queue.enqueue(url, format)} />
+      {window.flacsync && <DesktopBridge onOpen={openInSearch} />}
       <MobileNav route={route} onNavigate={navigate} />
     </div>
   );

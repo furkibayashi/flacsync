@@ -6,6 +6,10 @@ export interface AudioTags {
   tags: Record<string, string>;
   /** saniye */
   duration: number | null;
+  /** Gömülü kapak var mı */
+  hasCover: boolean;
+  /** kbps (biliniyorsa) */
+  bitrate: number | null;
 }
 
 /**
@@ -35,7 +39,7 @@ export function parseFfmetadata(out: string): Record<string, string> {
 /** ffmpeg ile dosya etiketlerini ve süresini okur (ffprobe gerektirmez). Hata fırlatmaz. */
 export function readTags(file: string): Promise<AudioTags> {
   return new Promise((done) => {
-    if (!ffmpegPath) return done({ tags: {}, duration: null });
+    if (!ffmpegPath) return done({ tags: {}, duration: null, hasCover: false, bitrate: null });
     const proc = spawn(ffmpegPath, ['-hide_banner', '-nostdin', '-i', file, '-f', 'ffmetadata', '-'], {
       windowsHide: true,
     });
@@ -48,13 +52,46 @@ export function readTags(file: string): Promise<AudioTags> {
     const timer = setTimeout(() => proc.kill('SIGKILL'), 15_000);
     proc.on('error', () => {
       clearTimeout(timer);
-      done({ tags: {}, duration: null });
+      done({ tags: {}, duration: null, hasCover: false, bitrate: null });
     });
     proc.on('close', () => {
       clearTimeout(timer);
       const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(err);
       const duration = m ? Math.round(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])) : null;
-      done({ tags: parseFfmetadata(Buffer.concat(out).toString('utf8')), duration });
+      const bitrate = Number(/bitrate:\s*(\d+)\s*kb\/s/.exec(err)?.[1]) || null;
+      const hasCover = /Stream #\d+:\d+.*Video:/.test(err);
+      done({ tags: parseFfmetadata(Buffer.concat(out).toString('utf8')), duration, hasCover, bitrate });
+    });
+  });
+}
+
+/**
+ * Şarkının algılanan yüksekliği (EBU R128 entegre yükseklik, LUFS). Ses eşitleme için.
+ * Dosyanın tamamı çözüldüğü için birkaç saniye sürer; arka planda, sırayla çağrılmalı.
+ */
+export function measureLoudness(file: string): Promise<number | null> {
+  return new Promise((done) => {
+    if (!ffmpegPath) return done(null);
+    const proc = spawn(
+      ffmpegPath,
+      ['-hide_banner', '-nostdin', '-nostats', '-i', file, '-map', '0:a:0', '-af', 'ebur128=framelog=quiet', '-f', 'null', '-'],
+      { windowsHide: true },
+    );
+    let err = '';
+    proc.stderr.on('data', (d: Buffer) => {
+      err += d.toString('utf8');
+      if (err.length > 200_000) err = err.slice(-50_000);
+    });
+    const timer = setTimeout(() => proc.kill('SIGKILL'), 120_000);
+    proc.on('error', () => {
+      clearTimeout(timer);
+      done(null);
+    });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      const all = [...err.matchAll(/I:\s*(-?\d+(?:\.\d+)?)\s*LUFS/g)];
+      const value = all.length ? Number(all[all.length - 1]![1]) : NaN;
+      done(Number.isFinite(value) && value > -70 ? value : null);
     });
   });
 }

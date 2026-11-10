@@ -30,6 +30,22 @@ contextBridge.exposeInMainWorld('flacsync', {
     install: (): Promise<boolean> => ipcRenderer.invoke('flacsync:update-install'),
     onState: (listener: (state: unknown) => void) => subscribe('flacsync:update-state', listener),
   },
+  // --- Tepsi, mini oynatıcı, pano ---
+  /** Ana pencere: çalan şarkının durumunu bildirir (tepsi ve mini oynatıcı için) */
+  sendNowPlaying: (state: unknown) => ipcRenderer.send('flacsync:now-playing', state),
+  /** Ana pencere: tepsi / mini oynatıcıdan gelen komutlar */
+  onPlayerCommand: (listener: (cmd: string) => void) => subscribe('flacsync:player-command', listener),
+  /** Mini oynatıcı: komut gönder */
+  playerCommand: (cmd: 'toggle' | 'next' | 'prev') => ipcRenderer.send('flacsync:player-command', cmd),
+  getNowPlaying: () => ipcRenderer.invoke('flacsync:get-now-playing'),
+  onNowPlaying: (listener: (state: unknown) => void) => subscribe('flacsync:now-playing', listener),
+  setMiniPlayer: (open: boolean) => ipcRenderer.send('flacsync:mini', open),
+  showMain: () => ipcRenderer.send('flacsync:show-main'),
+  setDesktopPrefs: (prefs: { closeToTray?: boolean; clipboardWatch?: boolean }) => ipcRenderer.send('flacsync:desktop-prefs', prefs),
+  onClipboardLink: (listener: (url: string) => void) => subscribe('flacsync:clipboard-link', listener),
+  /** Wi-Fi ile telefona gönderme: true aç, false kapat, undefined durum */
+  lan: (enabled?: boolean) => ipcRenderer.invoke('flacsync:lan', enabled),
+
   /** Menüden sayfa açma (ör. "Güncellemeleri denetle" → ayarlar) */
   onNavigate: (listener: (page: string) => void) => subscribe('flacsync:navigate', listener),
 });

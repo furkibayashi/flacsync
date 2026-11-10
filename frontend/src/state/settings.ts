@@ -110,3 +110,24 @@ export const useVolumeSetting = () => useStoredState<number>('flacsync.volume', 
 
 /** Açılışta güncelleme denetlensin mi (masaüstü) */
 export const useAutoUpdateSetting = () => useStoredState<boolean>('flacsync.autoUpdate', true, isBool);
+
+// --- Ses: eşitleme, geçiş, ekolayzer --------------------------------------------------------------
+
+const isCrossfade = (v: unknown): v is number => typeof v === 'number' && v >= 0 && v <= 12;
+const isEq = (v: unknown): v is [number, number, number, number, number] =>
+  Array.isArray(v) && v.length === 5 && v.every((x) => typeof x === 'number' && x >= -12 && x <= 12);
+const isPreset = (v: unknown): v is string => typeof v === 'string' && v.length < 20;
+
+/** Şarkıları aynı yükseklikte çal (ReplayGain benzeri) */
+export const useNormalizeSetting = () => useStoredState<boolean>('flacsync.normalize', true, isBool);
+/** Şarkılar arası geçiş süresi (sn); 0 = boşluksuz, kesintisiz geçiş */
+export const useCrossfadeSetting = () => useStoredState<number>('flacsync.crossfade', 0, isCrossfade);
+export const useEqPresetSetting = () => useStoredState<string>('flacsync.eqPreset', 'flat', isPreset);
+export const useEqCustomSetting = () => useStoredState<[number, number, number, number, number]>('flacsync.eqCustom', [0, 0, 0, 0, 0], isEq);
+
+// --- Masaüstü --------------------------------------------------------------------------------------
+
+/** Pencere kapatılınca tepside çalmaya devam et */
+export const useCloseToTraySetting = () => useStoredState<boolean>('flacsync.closeToTray', true, isBool);
+/** Panoya kopyalanan müzik linklerini algıla */
+export const useClipboardWatchSetting = () => useStoredState<boolean>('flacsync.clipboardWatch', true, isBool);

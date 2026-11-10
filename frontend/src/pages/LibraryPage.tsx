@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { ArrowLeft, FolderOpen, Library, Loader2, Play, RefreshCw, Search, Shuffle, Tags, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PlaylistDetail, PlaylistsGrid, type ListRef } from '../components/LibraryPlaylists';
+import { LibraryTools } from '../components/LibraryTools';
 import { LibraryCover as Cover, LibrarySongRow, toPlayerTrack } from '../components/LibrarySongRow';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatBytes } from '../lib/format';
@@ -13,8 +14,8 @@ import type { Route } from '../state/router';
 import { useStoredState } from '../state/settings';
 import type { GenreFixStatus, LibraryResponse, LibraryTrack } from '../types/api';
 
-type View = 'songs' | 'albums' | 'playlists';
-const isView = (v: unknown): v is View => v === 'songs' || v === 'albums' || v === 'playlists';
+type View = 'songs' | 'albums' | 'playlists' | 'tools';
+const isView = (v: unknown): v is View => v === 'songs' || v === 'albums' || v === 'playlists' || v === 'tools';
 
 interface AlbumGroup {
   key: string;
@@ -223,7 +224,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
       {total > 0 && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label className={clsx('relative flex-1', view === 'playlists' && 'invisible')}>
+            <label className={clsx('relative flex-1', (view === 'playlists' || view === 'tools') && 'invisible')}>
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-fade" />
               <input
                 type="search"
@@ -245,7 +246,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
               )}
             </label>
             <div role="group" aria-label={t('library.view')} className="inline-flex shrink-0 rounded-xl bg-panel p-1 ring-1 ring-rule">
-              {(['songs', 'albums', 'playlists'] as const).map((v) => (
+              {(window.flacsync ? (['songs', 'albums', 'playlists', 'tools'] as const) : (['songs', 'albums', 'playlists'] as const)).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -260,13 +261,13 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                     view === v ? 'bg-paper text-night' : 'text-dust hover:text-paper',
                   )}
                 >
-                  {t(v === 'songs' ? 'library.songs' : v === 'albums' ? 'library.albums' : 'library.playlists')}
+                  {t(v === 'songs' ? 'library.songs' : v === 'albums' ? 'library.albums' : v === 'playlists' ? 'library.playlists' : 'library.tools')}
                 </button>
               ))}
             </div>
           </div>
 
-          {data && data.genres.length > 0 && view !== 'playlists' && (
+          {data && data.genres.length > 0 && view !== 'playlists' && view !== 'tools' && (
             <div role="group" aria-label={t('discover.genres')} className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -380,6 +381,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
         </p>
       )}
 
+      {data && total > 0 && view === 'tools' && <LibraryTools onChanged={() => void load()} />}
       {data && total > 0 && view === 'playlists' && !openList && <PlaylistsGrid tracks={data.tracks} onOpen={setOpenList} />}
       {data && view === 'playlists' && openList && (
         <PlaylistDetail

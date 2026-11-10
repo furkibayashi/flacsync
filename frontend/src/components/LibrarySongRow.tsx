@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Check, Disc3, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Check, Disc3, Download, FilePenLine, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration } from '../lib/format';
@@ -9,6 +9,7 @@ import type { LibraryTrack } from '../types/api';
 import { AddToPlaylist } from './AddToPlaylist';
 import { ArtistLinks } from './ArtistLinks';
 import { RowPlayButton } from './PlayButton';
+import { TagEditor } from './TagEditor';
 import { Popover } from './Popover';
 
 export const toPlayerTrack = (t: LibraryTrack): PlayerTrack => ({
@@ -21,6 +22,7 @@ export const toPlayerTrack = (t: LibraryTrack): PlayerTrack => ({
   kind: 'full',
   duration: t.duration,
   libraryId: t.id,
+  loudness: t.loudness ?? null,
 });
 
 export function LibraryCover({ id, className }: { id: string; className?: string }) {
@@ -131,7 +133,9 @@ export function LibrarySongRow({
   knownGenres: string[];
   onChange: (t: LibraryTrack) => void;
 }) {
+  const { t } = useI18n();
   const { current, playing } = usePlayer();
+  const [editing, setEditing] = useState(false);
   const active = current?.id === `lib:${track.id}`;
   return (
     <li
@@ -160,6 +164,34 @@ export function LibrarySongRow({
       </span>
       <span className="hidden w-12 shrink-0 text-right text-sm text-fade tabular-nums sm:block">{formatDuration(track.duration)}</span>
       <RowPlayButton active={active} playing={active && playing} onClick={onPlay} />
+      {/* Telefondan / tarayıcıdan açıldıysa: dosyayı bu cihaza indir */}
+      {!window.flacsync && (
+        <a
+          href={`${api.libraryStreamUrl(track.id)}?download=1`}
+          download
+          onClick={(e) => e.stopPropagation()}
+          title={t('phone.download')}
+          aria-label={t('phone.download')}
+          className="grid size-9 shrink-0 place-items-center rounded-full text-dust transition hover:bg-raised hover:text-paper"
+        >
+          <Download className="size-4" />
+        </a>
+      )}
+      {window.flacsync && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditing(true);
+          }}
+          title={t('tags.title')}
+          aria-label={t('tags.title')}
+          className="hidden size-9 shrink-0 place-items-center rounded-full text-dust opacity-60 transition group-hover:opacity-100 hover:bg-raised hover:text-paper sm:grid"
+        >
+          <FilePenLine className="size-4" />
+        </button>
+      )}
+      {editing && <TagEditor track={track} onClose={() => setEditing(false)} onSaved={onChange} />}
       <AddToPlaylist trackIds={[track.id]} side="bottom" className="opacity-60 group-hover:opacity-100" />
       {onRemove ? (
         <button

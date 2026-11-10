@@ -7,6 +7,7 @@ import { usePlayer } from '../state/PlayerProvider';
 import { usePlaylists } from '../state/playlists';
 import type { LibraryTrack, Playlist } from '../types/api';
 import { LibraryCover, LibrarySongRow, toPlayerTrack } from './LibrarySongRow';
+import { SyncedPlaylists } from './SyncedPlaylists';
 
 export type SmartKey = 'most-played' | 'recent' | 'unplayed';
 export type ListRef = { kind: 'smart'; key: SmartKey } | { kind: 'user'; id: string };
@@ -83,6 +84,8 @@ export function PlaylistsGrid({ tracks, onOpen }: { tracks: LibraryTrack[]; onOp
 
   return (
     <div className="space-y-8">
+      <SyncedPlaylists onOpenPlaylist={(id) => onOpen({ kind: 'user', id })} />
+
       <section>
         <h2 className="mb-1 font-display text-xl font-bold text-paper">{t('playlist.smart')}</h2>
         <p className="mb-4 text-sm text-dust">{t('playlist.smartHint')}</p>

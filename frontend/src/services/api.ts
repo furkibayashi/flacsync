@@ -5,6 +5,11 @@ import type {
   LibraryTrack,
   Playlist,
   Release,
+  DuplicateGroup,
+  HealthReport,
+  OrganizeMove,
+  TagEdit,
+  WatchedPlaylist,
   ArtistProfile,
   ArtistSummary,
   Lyrics,
@@ -173,6 +178,25 @@ export const api = {
   unfollow: (id: string) => request<{ removed: boolean }>(`/follows/${id}`, { method: 'DELETE' }),
 
   releases: (signal?: AbortSignal) => request<{ releases: Release[] }>('/follows/releases', { signal }),
+
+  healthScan: () => request<HealthReport>('/library/health/scan', post({})),
+  healthFix: (ids?: string[]) => request<HealthReport>('/library/health/fix', post(ids ? { ids } : {})),
+  health: () => request<HealthReport>('/library/health'),
+  duplicates: () => request<{ groups: DuplicateGroup[] }>('/library/duplicates'),
+  deleteFile: (id: string) => request<{ trashed: boolean }>(`/library/tracks/${id}/file`, { method: 'DELETE' }),
+  organizePreview: (template: string) =>
+    request<{ template: string; moves: OrganizeMove[]; total: number }>('/library/organize/preview', post({ template })),
+  organizeApply: (template: string) => request<{ moved: number; failed: number }>('/library/organize/apply', post({ template })),
+  editTags: (id: string, edit: TagEdit) =>
+    request<{ track: LibraryTrack }>(`/library/tracks/${id}/tags`, { method: 'PATCH', body: JSON.stringify(edit) }),
+
+  syncList: () => request<{ playlists: WatchedPlaylist[] }>('/sync'),
+  syncAdd: (url: string, format: OutputFormat, downloadExisting: boolean) =>
+    request<WatchedPlaylist>('/sync', post({ url, format, downloadExisting })),
+  syncCheck: (id: string) => request<WatchedPlaylist>(`/sync/${id}/check`, post({})),
+  syncUpdate: (id: string, patch: { enabled?: boolean; format?: OutputFormat }) =>
+    request<WatchedPlaylist>(`/sync/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  syncRemove: (id: string) => request<{ removed: boolean }>(`/sync/${id}`, { method: 'DELETE' }),
 
   findArtist: (name: string, signal?: AbortSignal) =>
     request<{ artist: ArtistSummary | null }>(`/artist/find?name=${encodeURIComponent(name)}`, { signal }),

@@ -29,6 +29,8 @@ export function createApp(): express.Express {
           connectSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
           fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+          // Uygulama yerelde http ile çalışır (telefondan Wi-Fi ile de); https'ye zorlamak istekleri bozar
+          upgradeInsecureRequests: null,
         },
       },
     }),
@@ -41,6 +43,8 @@ export function createApp(): express.Express {
     }),
   );
 
+  // Etiket düzenleyicide kapak resmi gövdede (base64) gelir; yalnızca o uç için büyük sınır
+  app.use('/api/library/tracks/:id/tags', express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '64kb' }));
 
   app.use(

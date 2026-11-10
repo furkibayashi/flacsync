@@ -17,6 +17,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { AudioSettings } from '../components/AudioSettings';
+import { PhoneShare } from '../components/PhoneShare';
 import { RangeSlider } from '../components/PlayerBar';
 import { usePreferredFormat } from '../hooks/usePreferredFormat';
 import { useI18n } from '../i18n/I18nProvider';
@@ -28,6 +30,8 @@ import {
   THEMES,
   THEME_SWATCH,
   useAutoUpdateSetting,
+  useClipboardWatchSetting,
+  useCloseToTraySetting,
   useDesignStyle,
   useTheme,
   useVolumeSetting,
@@ -202,6 +206,32 @@ function StyleCard({ style, active, onSelect }: { style: DesignStyle; active: bo
         {active && <Check className="size-4 shrink-0 text-amber" />}
       </span>
     </button>
+  );
+}
+
+/** Masaüstü: tepsi, pano, mini oynatıcı */
+function DesktopRows({ Row: R, Toggle: T }: { Row: typeof Row; Toggle: typeof Toggle }) {
+  const { t } = useI18n();
+  const [closeToTray, setCloseToTray] = useCloseToTraySetting();
+  const [clipboardWatch, setClipboardWatch] = useClipboardWatchSetting();
+  return (
+    <>
+      <R label={t('desktop.closeToTray')} hint={t('desktop.closeToTrayHint')}>
+        <T checked={closeToTray} onChange={setCloseToTray} label={t('desktop.closeToTray')} />
+      </R>
+      <R label={t('desktop.clipboard')} hint={t('desktop.clipboardHint')}>
+        <T checked={clipboardWatch} onChange={setClipboardWatch} label={t('desktop.clipboard')} />
+      </R>
+      <R label={t('mini.open')} hint={t('desktop.miniHint')}>
+        <button
+          type="button"
+          onClick={() => window.flacsync?.setMiniPlayer(true)}
+          className="inline-flex items-center gap-2 rounded-xl bg-raised px-4 py-2 text-sm font-semibold text-paper ring-1 ring-rule transition hover:ring-dust"
+        >
+          {t('mini.open')}
+        </button>
+      </R>
+    </>
   );
 }
 
@@ -443,6 +473,7 @@ export function SettingsPage() {
           <SlidersHorizontal className="mt-0.5 size-4 shrink-0 text-fade" />
           {t('settings.shortcuts')}
         </p>
+        <AudioSettings Row={Row} Toggle={Toggle} />
       </Section>
 
       <Section icon={Settings2} title={t('settings.downloads')}>
@@ -465,6 +496,8 @@ export function SettingsPage() {
             </button>
           </Row>
         )}
+        {desktop && <DesktopRows Row={Row} Toggle={Toggle} />}
+        {desktop && <PhoneShare />}
         {desktop && (
           <Row label={t('settings.advanced')} hint={t('settings.advancedHint')}>
             <div className="flex flex-wrap gap-2">

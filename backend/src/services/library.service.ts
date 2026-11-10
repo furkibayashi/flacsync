@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { copyFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { copyFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, parse, relative, resolve } from 'node:path';
 import { env } from '../config/env.js';
 import PQueue from 'p-queue';
-import { readTags } from '../utils/audio-tags.js';
+import { measureLoudness, readTags } from '../utils/audio-tags.js';
 import { writeGenreTag } from '../utils/tag-writer.js';
 import { canonicalGenre, genreService } from './genre.service.js';
 import { ffmpegPath } from '../utils/ffmpeg.js';
@@ -40,6 +40,8 @@ export interface LibraryTrack {
   /** Uygulamada kaç kez dinlendi (≥30 sn) */
   playCount: number;
   lastPlayedAt: string | null;
+  /** Ölçülen yükseklik (LUFS); ses eşitleme için. Henüz ölçülmediyse null */
+  loudness?: number | null;
   /** Kütüphane klasörüne göre yol (arayüzde gösterilir) */
   relativePath: string;
 }
@@ -114,6 +116,25 @@ export class LibraryService {
   private writing: Promise<void> = Promise.resolve();
   private scanning: Promise<{ added: number; removed: number }> | null = null;
   private readonly coverQueue = new PQueue({ concurrency: 3 });
+  /** Yükseklik ölçümü: arka planda, tek tek */
+  private readonly loudQueue = new PQueue({ concurrency: 1 });
+  private readonly loudPending = new Set<string>();
+
+  /** Ölçülmemiş şarkıları sıraya alır (açılışta ve her eklemede) */
+  measureMissing(): void {
+    for (const t of this.tracks.values()) {
+      if (t.loudness !== undefined || this.loudPending.has(t.id)) continue;
+      this.loudPending.add(t.id);
+      void this.loudQueue.add(async () => {
+        const current = this.tracks.get(t.id);
+        if (current && existsSync(current.path)) {
+          current.loudness = await measureLoudness(current.path);
+          this.scheduleWrite();
+        }
+        this.loudPending.delete(t.id);
+      });
+    }
+  }
 
   constructor(
     dir = resolve(env.LIBRARY_DIR),
@@ -138,7 +159,7 @@ export class LibraryService {
       if (t.genre) genreCount.set(t.genre, (genreCount.get(t.genre) ?? 0) + 1);
     }
     return {
-      tracks: tracks.map(({ path: _p, mtimeMs: _m, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null })),
+      tracks: tracks.map(({ path: _p, mtimeMs: _m, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null, loudness: pub.loudness ?? null })),
       genres: [...genreCount.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
       totalBytes,
       dir: this.dir,
@@ -149,6 +170,11 @@ export class LibraryService {
   filePath(id: string): string | null {
     const t = this.tracks.get(id);
     return t && existsSync(t.path) ? t.path : null;
+  }
+
+  /** Kapak değişti: önbellekteki küçük kopya silinir, sonraki istekte yeniden çıkarılır */
+  invalidateCover(id: string): void {
+    void rm(join(this.coverDir, `${id}.jpg`), { force: true }).catch(() => undefined);
   }
 
   async coverPath(id: string): Promise<string | null> {
@@ -206,6 +232,7 @@ export class LibraryService {
       const target = uniquePath(dir, file.fileName);
       await copyFile(file.path, target);
       await this.addFile(target, pending);
+      this.emitAdded(jobId, trackId(target));
     } catch (err) {
       logger.warn({ err, jobId }, 'Şarkı kütüphaneye eklenemedi');
     }
@@ -217,6 +244,7 @@ export class LibraryService {
     this.pending.delete(jobId);
     try {
       await this.addFile(path, pending);
+      this.emitAdded(jobId, trackId(path));
     } catch (err) {
       logger.warn({ err, jobId, path }, 'Kaydedilen dosya kütüphaneye eklenemedi');
     }
@@ -299,6 +327,66 @@ export class LibraryService {
     return true;
   }
 
+  private readonly addedListeners = new Set<(jobId: string, trackId: string) => void>();
+
+  /** Bir indirme kütüphaneye girdi (liste senkronu, şarkıyı listeye eklemek için dinler) */
+  onAdded(listener: (jobId: string, trackId: string) => void): () => void {
+    this.addedListeners.add(listener);
+    return () => this.addedListeners.delete(listener);
+  }
+
+  private emitAdded(jobId: string, id: string): void {
+    for (const l of this.addedListeners) {
+      try {
+        l(jobId, id);
+      } catch (err) {
+        logger.warn({ err }, 'Kütüphane dinleyicisi hata verdi');
+      }
+    }
+  }
+
+  /** Araçlar için: kayıtlar gerçek dosya yollarıyla */
+  entries(): Array<LibraryTrack & { path: string }> {
+    return [...this.tracks.values()].filter((t) => existsSync(t.path)).map(({ mtimeMs: _m, ...t }) => ({ ...t }));
+  }
+
+  /** Dosya değişti (etiket düzenlendi): etiketleri yeniden okur, kimlik ve istatistikler korunur */
+  async reread(id: string): Promise<LibraryTrack | null> {
+    const t = this.tracks.get(id);
+    if (!t) return null;
+    await this.addFile(t.path, undefined, t.addedAt, id);
+    const updated = this.tracks.get(id)!;
+    updated.coverUrl = t.coverUrl;
+    return this.track(id);
+  }
+
+  /** Dosya taşındı (klasör düzeni): kimlik korunur, yol güncellenir */
+  relocate(id: string, newPath: string): void {
+    const t = this.tracks.get(id);
+    if (!t) return;
+    t.path = resolve(newPath);
+    t.relativePath = relativeTo(this.dir, newPath);
+    this.scheduleWrite();
+  }
+
+  private trashHandler: ((file: string) => Promise<void>) | null = null;
+
+  /** Masaüstü: silinenler Geri Dönüşüm Kutusu'na gitsin (shell.trashItem) */
+  setTrashHandler(handler: (file: string) => Promise<void>): void {
+    this.trashHandler = handler;
+  }
+
+  /** Dosyayı siler (masaüstünde Geri Dönüşüm Kutusu'na) ve kütüphaneden çıkarır */
+  async deleteFile(id: string): Promise<{ trashed: boolean }> {
+    const t = this.tracks.get(id);
+    if (!t) return { trashed: false };
+    if (this.trashHandler) await this.trashHandler(t.path);
+    else await rm(t.path, { force: true });
+    this.tracks.delete(id);
+    this.scheduleWrite();
+    return { trashed: Boolean(this.trashHandler) };
+  }
+
   remove(id: string): boolean {
     const removed = this.tracks.delete(id);
     if (removed) this.scheduleWrite();
@@ -334,17 +422,18 @@ export class LibraryService {
     }
     const files: string[] = [];
     await walk(this.dir, 0, files);
+    const byPath = new Map([...this.tracks.values()].map((t) => [t.path.toLowerCase(), t.id]));
     let added = 0;
     for (const file of files) {
       if (this.tracks.size >= MAX_TRACKS) break;
-      const id = trackId(file);
+      const id = byPath.get(resolve(file).toLowerCase()) ?? trackId(file);
       const existing = this.tracks.get(id);
       if (existing) {
         const s = await stat(file).catch(() => null);
         if (s && s.mtimeMs === existing.mtimeMs) continue;
       }
       try {
-        await this.addFile(file, undefined, existing?.addedAt);
+        await this.addFile(file, undefined, existing?.addedAt, id);
         if (!existing) added++;
       } catch (err) {
         logger.debug({ err, file }, 'Dosya okunamadı');
@@ -354,7 +443,7 @@ export class LibraryService {
     return { added, removed };
   }
 
-  private async addFile(path: string, pending?: PendingMeta, addedAt?: string): Promise<void> {
+  private async addFile(path: string, pending?: PendingMeta, addedAt?: string, keepId?: string): Promise<void> {
     const ext = extname(path).toLowerCase();
     if (!AUDIO_EXT.has(ext)) return;
     const s = await stat(path);
@@ -363,7 +452,8 @@ export class LibraryService {
     const read = meta ? null : await readTags(path);
     const tags = read?.tags ?? {};
     const trackRaw = first(tags, 'track', 'tracknumber');
-    const id = trackId(path);
+    // Taşınan / yeniden etiketlenen dosya kimliğini korur (çalma listeleri bozulmasın)
+    const id = keepId ?? trackId(path);
 
     const track: StoredTrack = {
       id,
@@ -386,6 +476,7 @@ export class LibraryService {
     };
     this.tracks.set(id, track);
     this.scheduleWrite();
+    setTimeout(() => this.measureMissing(), 2000).unref();
   }
 
   private prunePending(): void {
@@ -398,6 +489,7 @@ export class LibraryService {
     try {
       const data = JSON.parse(readFileSync(this.file, 'utf8')) as { tracks?: StoredTrack[] };
       for (const t of data.tracks ?? []) if (t?.id && t.path) this.tracks.set(t.id, t);
+      setTimeout(() => this.measureMissing(), 10_000).unref();
     } catch (err) {
       logger.warn({ err, file: this.file }, 'Kütüphane dizini okunamadı, boş başlatılıyor');
     }

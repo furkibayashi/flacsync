@@ -39,6 +39,13 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
   dinlenmeyenler); M3U8 olarak dışa aktar (VLC, foobar2000, MusicBee, telefon).
 - **Sanatçı takibi** — Takip ettiğin sanatçıların yeni albüm ve single'ları ana sayfada.
 - **Şimdi çalıyor ekranı** — Büyük kapak, dönen plak, akan sözler, sıradakiler; **uyku zamanlayıcı**.
+- **Liste senkronu** — Spotify / Apple Music / Deezer / YouTube Music listesini takibe al; yeni eklenen
+  şarkılar kendiliğinden indirilir.
+- **Wi-Fi ile telefona gönder** — QR kodla telefondan kütüphaneyi dinle, şarkıları telefona indir.
+- **Ses** — ses seviyesi eşitleme, 5 bantlı ekolayzer, crossfade ve boşluksuz çalma.
+- **Masaüstü** — sistem tepsisinde çalmaya devam, mini oynatıcı, kopyalanan linki algılama.
+- **Kütüphane araçları** — sağlık taraması (eksik kapak / söz / tür …), kopya bulucu, klasör düzeni
+  şablonu, etiket düzenleyici.
 - **Ayarlar** — 6 renk teması ve renkten bağımsız 6 tasarım (Klasik, Yumuşak, Sıkı, Keskin, Kaset, Cam),
   dil, varsayılan format ve ses.
 - **Uygulama içi güncelleme** — Yeni sürüm çıkınca uygulama haber verir; tek tıkla indirip kurar

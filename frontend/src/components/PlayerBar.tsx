@@ -5,6 +5,7 @@ import {
   ListMusic,
   Loader2,
   Maximize2,
+  PictureInPicture2,
   MicVocal,
   Pause,
   Play,
@@ -296,6 +297,17 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
           </button>
           {track.libraryId && <AddToPlaylist trackIds={[track.libraryId]} className="hidden xl:grid" />}
           <SleepTimerButton className="hidden xl:grid" />
+          {window.flacsync?.setMiniPlayer && (
+            <button
+              type="button"
+              onClick={() => window.flacsync?.setMiniPlayer(true)}
+              title={t('mini.open')}
+              aria-label={t('mini.open')}
+              className={clsx(iconBtn(), 'hidden lg:grid')}
+            >
+              <PictureInPicture2 className="size-[17px]" />
+            </button>
+          )}
           {track.kind === 'preview' && track.sourceUrl && (
             <button
               type="button"

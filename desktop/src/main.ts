@@ -4,6 +4,8 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join, parse } from 'node:path';
 import dotenv from 'dotenv';
+import { setupCompanion } from './companion.js';
+import { LanShare } from './lan.js';
 import { Updater } from './updater.js';
 import { ensureYtDlpDir, updateYtDlpDir } from './ytdlp-dir.js';
 import {
@@ -82,6 +84,10 @@ const paths = {
   get bundledYtDlpDir() {
     return app.isPackaged ? join(resourceRoot(), 'bin', 'yt-dlp') : join(resourceRoot(), 'vendor', 'yt-dlp');
   },
+  /** Tepsi simgesi */
+  get icon() {
+    return app.isPackaged ? join(resourceRoot(), 'icon.png') : join(app.getAppPath(), 'build', 'icon.png');
+  },
   get savedIndex() {
     return join(this.userData, 'data', 'saved-files.json');
   },
@@ -149,8 +155,12 @@ async function startServer(): Promise<{ server: Server; url: string }> {
       import('../../backend/src/services/playlist.service.js'),
       import('../../backend/src/services/follow.service.js'),
     ]);
+  const [{ syncService }] = await Promise.all([import('../../backend/src/services/sync.service.js')]);
+  syncService.start();
+  // Silinen dosyalar Geri Dönüşüm Kutusu'na gitsin
+  libraryService.setTrashHandler((file) => shell.trashItem(file));
   flushHistory = () =>
-    Promise.all([historyService.flush(), libraryService.flush(), playlistService.flush(), followService.flush()]).then(
+    Promise.all([historyService.flush(), libraryService.flush(), playlistService.flush(), followService.flush(), syncService.flush()]).then(
       () => undefined,
     );
   attachToLibrary = (jobId, file) => void libraryService.attach(jobId, file);
@@ -169,6 +179,8 @@ async function startServer(): Promise<{ server: Server; url: string }> {
   const server = await listen(PREFERRED_PORT).catch(() => listen(0));
   jobsService.startSweeper();
 
+  lanShare = new LanShare(app);
+
   const { port } = server.address() as AddressInfo;
   return { server, url: `http://127.0.0.1:${port}` };
 }
@@ -183,6 +195,8 @@ let flushHistory: () => Promise<void> = async () => undefined;
 /** Kaydedilen dosyayı kütüphaneye ekler (startServer sonrası atanır) */
 let attachToLibrary: (jobId: string, file: string) => void = () => undefined;
 let updater: Updater | null = null;
+/** Wi-Fi ile telefona gönderme (Ayarlar'dan açılır) */
+let lanShare: LanShare | null = null;
 
 function createWindow(url: string): BrowserWindow {
   const win = new BrowserWindow({
@@ -200,6 +214,8 @@ function createWindow(url: string): BrowserWindow {
       sandbox: true,
       spellcheck: false,
       preload: join(__dirname, 'preload.cjs'),
+      // Tepsideyken de crossfade / söz zamanlaması aksamasın
+      backgroundThrottling: false,
     },
   });
 
@@ -388,6 +404,12 @@ function setupIpc(): void {
     })),
   );
   ipcMain.handle('flacsync:relaunch', () => relaunch());
+  ipcMain.handle('flacsync:lan', async (_e, enabled: unknown) => {
+    if (!lanShare) return null;
+    if (enabled === true) return lanShare.enable();
+    if (enabled === false) return lanShare.disable();
+    return lanShare.current;
+  });
 
   // --- Uygulama güncellemesi ---
   ipcMain.handle('flacsync:update-get', () => updater?.current ?? null);
@@ -525,6 +547,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
+    // Tepsideyse (gizli) geri getir
+    mainWindow.show();
     mainWindow.focus();
   });
 
@@ -543,6 +567,13 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow = createWindow(started.url);
       mainWindow.on('closed', () => {
         mainWindow = null;
+      });
+      setupCompanion({
+        appName: APP_NAME,
+        url: started.url,
+        iconPath: paths.icon,
+        preload: join(__dirname, 'preload.cjs'),
+        getMainWindow: () => mainWindow,
       });
     } catch (err) {
       console.error(`${APP_NAME} başlatılamadı:`, err);

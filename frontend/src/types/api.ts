@@ -258,6 +258,7 @@ export interface LibraryTrack {
   addedAt: string;
   playCount: number;
   lastPlayedAt: string | null;
+  loudness?: number | null;
   relativePath: string;
 }
 
@@ -359,4 +360,64 @@ export interface Release {
   releaseYear: string | null;
   type: 'album' | 'single' | 'ep' | 'compilation';
   url: string;
+}
+
+// --- Liste senkronu ---------------------------------------------------------------------------------
+
+export interface WatchedPlaylist {
+  id: string;
+  url: string;
+  name: string;
+  platform: Platform;
+  coverUrl: string | null;
+  playlistId: string;
+  format: OutputFormat;
+  enabled: boolean;
+  trackCount: number;
+  lastCheckedAt: string | null;
+  lastAdded: number;
+  lastError: string | null;
+  addedAt: string;
+  checking: boolean;
+}
+
+// --- Kütüphane araçları -------------------------------------------------------------------------------
+
+export type HealthIssue = 'cover' | 'lyrics' | 'genre' | 'year' | 'album' | 'albumArtist';
+
+export interface HealthReport {
+  running: boolean;
+  phase: 'scan' | 'fix' | null;
+  total: number;
+  done: number;
+  items: { id: string; title: string; artist: string; issues: HealthIssue[] }[];
+  counts: Record<HealthIssue, number>;
+  fixed: number;
+  failed: number;
+  finishedAt: string | null;
+}
+
+export interface DuplicateGroup {
+  key: string;
+  title: string;
+  artist: string;
+  tracks: Array<LibraryTrack & { bitrate: number | null; recommended: boolean }>;
+}
+
+export interface OrganizeMove {
+  id: string;
+  from: string;
+  to: string;
+}
+
+export interface TagEdit {
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+  year?: string;
+  genre?: string;
+  trackNumber?: number;
+  coverUrl?: string;
+  coverData?: string;
 }

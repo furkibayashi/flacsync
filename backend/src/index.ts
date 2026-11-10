@@ -4,6 +4,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { historyService } from './services/history.service.js';
 import { jobsService } from './services/jobs.service.js';
+import { syncService } from './services/sync.service.js';
 import { logger } from './utils/logger.js';
 
 async function main(): Promise<void> {
@@ -17,6 +18,7 @@ async function main(): Promise<void> {
     logger.info(`API hazır → http://localhost:${env.PORT}/api (ortam: ${env.NODE_ENV})`);
   });
   jobsService.startSweeper();
+  syncService.start();
 
   const shutdown = (signal: string) => {
     logger.info(`${signal} alındı, sunucu kapatılıyor`);

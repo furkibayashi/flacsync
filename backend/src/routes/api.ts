@@ -12,7 +12,9 @@ import { COUNTRIES, discoverService, GENRES } from '../services/discover.service
 import { artistService } from '../services/artist.service.js';
 import { freshDeezerPreview } from '../services/metadata/deezer-preview.js';
 import { followService } from '../services/follow.service.js';
+import { DEFAULT_TEMPLATE, libraryToolsService } from '../services/library-tools.service.js';
 import { libraryService } from '../services/library.service.js';
+import { SyncError, syncService } from '../services/sync.service.js';
 import { PlaylistError, playlistService } from '../services/playlist.service.js';
 import { lyricsService } from '../services/lyrics/lyrics.service.js';
 import { HttpError } from '../utils/http-error.js';
@@ -345,6 +347,8 @@ apiRouter.get('/library/tracks/:id/stream', (req, res, next) => {
   const { id } = libraryParams.parse(req.params);
   const file = libraryService.filePath(id);
   if (!file) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  // ?download=1: tarayıcı (ör. telefon) dosyayı kaydetsin
+  if (req.query.download === '1') res.attachment(file.split(/[\\/]/).pop() ?? 'track');
   res.sendFile(file, { dotfiles: 'allow', headers: { 'Cache-Control': 'no-cache' } }, (err) => {
     if (err && !res.headersSent) next(err);
   });
@@ -431,6 +435,112 @@ apiRouter.get('/library/genres/fix', (_req, res) => {
 apiRouter.delete('/library/tracks/:id', (req, res) => {
   const { id } = libraryParams.parse(req.params);
   res.json({ removed: libraryService.remove(id) });
+});
+
+// --- Kütüphane araçları --------------------------------------------------------
+
+const idList = z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(20000);
+
+/** Sağlık taraması: eksik kapak / söz / tür / yıl / albüm / albüm sanatçısı */
+apiRouter.post('/library/health/scan', (_req, res) => {
+  res.status(202).json(libraryToolsService.startHealthScan());
+});
+
+apiRouter.post('/library/health/fix', (req, res) => {
+  const { ids } = z.object({ ids: idList.optional() }).parse(req.body ?? {});
+  res.status(202).json(libraryToolsService.startHealthFix(ids));
+});
+
+apiRouter.get('/library/health', (_req, res) => {
+  res.json(libraryToolsService.healthReport);
+});
+
+/** Kopya bulucu */
+apiRouter.get('/library/duplicates', async (_req, res) => {
+  res.json({ groups: await libraryToolsService.duplicates() });
+});
+
+/** Dosyayı sil (masaüstünde Geri Dönüşüm Kutusu'na) */
+apiRouter.delete('/library/tracks/:id/file', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  if (!libraryService.track(id)) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  res.json(await libraryService.deleteFile(id));
+});
+
+/** Klasör düzeni: önizleme ve uygulama */
+const organizeBody = z.object({ template: z.string().trim().min(3).max(200).default(DEFAULT_TEMPLATE) });
+
+apiRouter.post('/library/organize/preview', async (req, res) => {
+  const { template } = organizeBody.parse(req.body ?? {});
+  const moves = await libraryToolsService.organizePreview(template);
+  res.json({ template, moves: moves.slice(0, 500), total: moves.length });
+});
+
+apiRouter.post('/library/organize/apply', async (req, res) => {
+  const { template } = organizeBody.parse(req.body ?? {});
+  res.json(await libraryToolsService.organizeApply(template));
+});
+
+/** Etiket düzenleyici (kapak: https adresi ya da data:image/... base64) */
+const tagsBody = z.object({
+  title: z.string().trim().max(300).optional(),
+  artist: z.string().trim().max(300).optional(),
+  album: z.string().trim().max(300).optional(),
+  albumArtist: z.string().trim().max(300).optional(),
+  year: z.string().trim().regex(/^\d{4}$/).optional().or(z.literal('')),
+  genre: z.string().trim().max(60).optional(),
+  trackNumber: z.coerce.number().int().min(0).max(999).optional(),
+  coverUrl: z.string().url().startsWith('https://').max(1000).optional(),
+  coverData: z.string().max(15_000_000).regex(/^data:image\/(jpeg|png|webp);base64,/).optional(),
+});
+
+apiRouter.patch('/library/tracks/:id/tags', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  const { coverUrl, coverData, ...fields } = tagsBody.parse(req.body);
+  const data = coverData ? Buffer.from(coverData.slice(coverData.indexOf(',') + 1), 'base64') : null;
+  const track = await libraryToolsService.editTags(id, fields, coverUrl, data);
+  if (!track) throw new HttpError(404, 'NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  res.json({ track });
+});
+
+// --- Liste senkronu --------------------------------------------------------------
+
+const syncParams = z.object({ id: z.string().uuid() });
+const syncCreate = z.object({ url: urlField, format: formatField, downloadExisting: z.boolean().default(true) });
+const syncPatch = z.object({ enabled: z.boolean().optional(), format: formatField.optional() });
+
+async function syncCall<T>(fn: () => T | Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof SyncError) throw new HttpError(err.code === 'NOT_FOUND' ? 404 : err.code === 'LIMIT' ? 409 : 422, err.code, err.message);
+    throw err;
+  }
+}
+
+apiRouter.get('/sync', (_req, res) => {
+  res.json({ playlists: syncService.list() });
+});
+
+apiRouter.post('/sync', async (req, res) => {
+  const { url, format, downloadExisting } = syncCreate.parse(req.body);
+  assertSupported(url);
+  res.status(201).json(await syncCall(() => syncService.add(url, format, downloadExisting)));
+});
+
+apiRouter.post('/sync/:id/check', async (req, res) => {
+  const { id } = syncParams.parse(req.params);
+  res.json(await syncCall(() => syncService.check(id)));
+});
+
+apiRouter.patch('/sync/:id', async (req, res) => {
+  const { id } = syncParams.parse(req.params);
+  res.json(await syncCall(() => syncService.update(id, syncPatch.parse(req.body))));
+});
+
+apiRouter.delete('/sync/:id', (req, res) => {
+  const { id } = syncParams.parse(req.params);
+  res.json({ removed: syncService.remove(id) });
 });
 
 // --- Çalma listeleri ----------------------------------------------------------

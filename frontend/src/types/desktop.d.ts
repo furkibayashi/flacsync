@@ -25,6 +25,15 @@ declare global {
     checkedAt: string | null;
   }
 
+  interface DesktopNowPlaying {
+    title: string;
+    artist: string;
+    coverUrl: string | null;
+    playing: boolean;
+    time: number;
+    duration: number;
+  }
+
   interface Window {
     flacsync?: {
       isDesktop: true;
@@ -43,6 +52,16 @@ declare global {
         onState(listener: (state: DesktopUpdateState) => void): () => void;
       };
       onNavigate(listener: (page: string) => void): () => void;
+      sendNowPlaying(state: DesktopNowPlaying | null): void;
+      onPlayerCommand(listener: (cmd: 'toggle' | 'next' | 'prev') => void): () => void;
+      playerCommand(cmd: 'toggle' | 'next' | 'prev'): void;
+      getNowPlaying(): Promise<DesktopNowPlaying | null>;
+      onNowPlaying(listener: (state: DesktopNowPlaying | null) => void): () => void;
+      setMiniPlayer(open: boolean): void;
+      showMain(): void;
+      setDesktopPrefs(prefs: { closeToTray?: boolean; clipboardWatch?: boolean }): void;
+      onClipboardLink(listener: (url: string) => void): () => void;
+      lan(enabled?: boolean): Promise<unknown>;
     };
   }
 }
