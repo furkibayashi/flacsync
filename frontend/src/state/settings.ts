@@ -54,7 +54,7 @@ export function useStoredState<T>(key: string, fallback: T, valid: (v: unknown) 
 
 // --- Tema -------------------------------------------------------------------
 
-export const THEMES = ['night', 'oled', 'ocean', 'sakura', 'forest', 'light'] as const;
+export const THEMES = ['night', 'oled', 'ocean', 'sakura', 'forest', 'light', 'pop', 'rock', 'metal', 'jazz', 'hiphop', 'synthwave'] as const;
 export type Theme = (typeof THEMES)[number];
 
 /** Ayarlar'daki önizleme kartları için: zemin, panel, yazı, vurgu */
@@ -65,6 +65,12 @@ export const THEME_SWATCH: Record<Theme, [string, string, string, string]> = {
   sakura: ['#1c1317', '#32232a', '#f8e9ef', '#ff8fb1'],
   forest: ['#111914', '#203026', '#e7f2e9', '#9bd36a'],
   light: ['#f5f2ec', '#ebe6dd', '#1d1a22', '#c27400'],
+  pop: ['#1a1024', '#33204a', '#fbeefe', '#ff5fd2'],
+  rock: ['#161212', '#2e2222', '#f3e9e6', '#e63c2e'],
+  metal: ['#0b0c0e', '#1f2226', '#e6e8ec', '#c9ced6'],
+  jazz: ['#0f1426', '#22294a', '#f2ead8', '#d9a441'],
+  hiphop: ['#121110', '#2a2724', '#f5f0e6', '#ffc400'],
+  synthwave: ['#120a24', '#2a1650', '#f6ecff', '#2ee6ff'],
 };
 
 const isTheme = (v: unknown): v is Theme => typeof v === 'string' && (THEMES as readonly string[]).includes(v);

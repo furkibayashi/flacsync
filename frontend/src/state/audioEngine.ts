@@ -33,6 +33,8 @@ interface Deck {
 }
 
 const toLinear = (db: number) => Math.pow(10, db / 20);
+/** Geçersiz (NaN/aşırı) EQ değeri filtreyi kararsız yapıp kalıcı gürültü üretebilir */
+const safeDb = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(-12, Math.min(12, v)) : 0);
 
 export class AudioEngine {
   readonly preview: HTMLAudioElement;
@@ -73,21 +75,35 @@ export class AudioEngine {
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       return;
     }
-    const ctx = new AudioContext();
+    // 'playback': daha büyük ses tamponu; işlemci meşgulken (indirme, ölçüm) cızırtı/takılma olmaz
+    const ctx = new AudioContext({ latencyHint: 'playback' });
     this.ctx = ctx;
     this.master = ctx.createGain();
+    // Sınırlayıcı: eşitleme/ekolayzer yükseltmesi 0 dBFS'i aşınca sert kırpılma yerine yumuşak bastırır
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -1.5;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.15;
     this.eq = EQ_BANDS.map((freq, i) => {
       const f = ctx.createBiquadFilter();
       f.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking';
       f.frequency.value = freq;
       f.Q.value = 1;
-      f.gain.value = this.eqGains[i]!;
+      f.gain.value = safeDb(this.eqGains[i]);
       return f;
     });
     // ekolayzer zinciri → ana ses → çıkış
-    this.eq.reduce<AudioNode>((prev, node) => (prev.connect(node), node), this.eq[0]!);
+    // Her filtreyi bir sonrakine bağla (ilki kendine bağlanırsa geri besleme döngüsü olur → uğultu)
+    for (let i = 0; i < this.eq.length - 1; i++) this.eq[i]!.connect(this.eq[i + 1]!);
     this.eq[this.eq.length - 1]!.connect(this.master);
-    this.master.connect(ctx.destination);
+    this.master.connect(limiter);
+    limiter.connect(ctx.destination);
+    // Ses aygıtı değişince (kulaklık takma vb.) bağlam askıya alınabilir; yeniden başlat
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'suspended' && this.decks.some((d) => !d.el.paused)) void ctx.resume();
+    });
     for (const deck of this.decks) {
       const src = ctx.createMediaElementSource(deck.el);
       deck.gain = ctx.createGain();
@@ -115,9 +131,9 @@ export class AudioEngine {
   }
 
   setEq(gains: EqGains): void {
-    this.eqGains = gains;
+    this.eqGains = gains.map(safeDb) as EqGains;
     if (!this.ctx) return;
-    this.eq.forEach((f, i) => f.gain.setTargetAtTime(gains[i]!, this.ctx!.currentTime, 0.05));
+    this.eq.forEach((f, i) => f.gain.setTargetAtTime(this.eqGains[i]!, this.ctx!.currentTime, 0.05));
   }
 
   setNormalize(on: boolean): void {
@@ -128,7 +144,9 @@ export class AudioEngine {
   /** Şarkının ölçülen yüksekliğinden kazanç (−12…+6 dB arası) */
   private normFor(loudness: number | null | undefined): number {
     if (!this.normalize || loudness === null || loudness === undefined) return 1;
-    return toLinear(Math.max(-12, Math.min(6, TARGET_LUFS - loudness)));
+    if (!Number.isFinite(loudness)) return 1;
+    // Yükseltme +3 dB ile sınırlı: sessiz kayıtları fazla yükseltmek tepe noktalarını kırpar
+    return toLinear(Math.max(-12, Math.min(3, TARGET_LUFS - loudness)));
   }
 
   private setDeckGain(deck: Deck, fade: number, rampSec = 0): void {

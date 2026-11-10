@@ -432,9 +432,12 @@ apiRouter.get('/library/genres/fix', (_req, res) => {
   res.json(libraryService.genreFix);
 });
 
-apiRouter.delete('/library/tracks/:id', (req, res) => {
+/** Kütüphaneden kaldırır ve dosyayı da siler (masaüstünde Geri Dönüşüm Kutusu'na gider) */
+apiRouter.delete('/library/tracks/:id', async (req, res) => {
   const { id } = libraryParams.parse(req.params);
-  res.json({ removed: libraryService.remove(id) });
+  if (!libraryService.track(id)) return res.json({ removed: false });
+  await libraryService.deleteFile(id);
+  res.json({ removed: true });
 });
 
 // --- Kütüphane araçları --------------------------------------------------------

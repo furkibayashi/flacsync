@@ -120,6 +120,102 @@
   --art: 214 170 120;
 }
 
+:root[data-theme="pop"] {
+  --color-night: #1a1024;
+  --color-panel: #24163a;
+  --color-raised: #33204a;
+  --color-rule: #4a3266;
+  --color-paper: #fbeefe;
+  --color-dust: #c9a9dc;
+  --color-fade: #8f72a3;
+  --color-amber: #ff5fd2;
+  --color-amber-hi: #ff8ee0;
+  --color-on-accent: #2b0623;
+  --color-flac: #7ed6ff;
+  --color-sidebar: #1e122c;
+  --art: 220 90 200;
+}
+
+:root[data-theme="rock"] {
+  --color-night: #161212;
+  --color-panel: #201919;
+  --color-raised: #2e2222;
+  --color-rule: #443232;
+  --color-paper: #f3e9e6;
+  --color-dust: #b9a19c;
+  --color-fade: #85706b;
+  --color-amber: #e63c2e;
+  --color-amber-hi: #ff6656;
+  --color-on-accent: #ffffff;
+  --color-flac: #e0b04a;
+  --color-sidebar: #1a1414;
+  --art: 170 50 40;
+}
+
+:root[data-theme="metal"] {
+  --color-night: #0b0c0e;
+  --color-panel: #141619;
+  --color-raised: #1f2226;
+  --color-rule: #33373d;
+  --color-paper: #e6e8ec;
+  --color-dust: #9aa0a8;
+  --color-fade: #686d75;
+  --color-amber: #c9ced6;
+  --color-amber-hi: #eef1f5;
+  --color-on-accent: #0b0c0e;
+  --color-flac: #d13030;
+  --color-sidebar: #0e1012;
+  --art: 110 115 125;
+}
+
+:root[data-theme="jazz"] {
+  --color-night: #0f1426;
+  --color-panel: #171d36;
+  --color-raised: #22294a;
+  --color-rule: #343d63;
+  --color-paper: #f2ead8;
+  --color-dust: #b3aa95;
+  --color-fade: #7f7967;
+  --color-amber: #d9a441;
+  --color-amber-hi: #efc26a;
+  --color-on-accent: #1a1204;
+  --color-flac: #8fb3ff;
+  --color-sidebar: #121830;
+  --art: 180 140 70;
+}
+
+:root[data-theme="hiphop"] {
+  --color-night: #121110;
+  --color-panel: #1c1a18;
+  --color-raised: #2a2724;
+  --color-rule: #3d3935;
+  --color-paper: #f5f0e6;
+  --color-dust: #b5ada0;
+  --color-fade: #827a6e;
+  --color-amber: #ffc400;
+  --color-amber-hi: #ffd54d;
+  --color-on-accent: #1a1400;
+  --color-flac: #4ad6a0;
+  --color-sidebar: #161513;
+  --art: 200 160 40;
+}
+
+:root[data-theme="synthwave"] {
+  --color-night: #120a24;
+  --color-panel: #1b0f38;
+  --color-raised: #2a1650;
+  --color-rule: #41246f;
+  --color-paper: #f6ecff;
+  --color-dust: #b9a3d9;
+  --color-fade: #8270a3;
+  --color-amber: #2ee6ff;
+  --color-amber-hi: #7df0ff;
+  --color-on-accent: #05202a;
+  --color-flac: #ff4fb4;
+  --color-sidebar: #160c2e;
+  --art: 190 60 220;
+}
+
 html,
 body {
   background-color: var(--color-night);
@@ -147,7 +243,11 @@ body {
 .vinyl-grooves {
   background:
     conic-gradient(from 210deg, transparent 0 8%, rgb(255 255 255 / 0.07) 12%, transparent 18% 58%, rgb(255 255 255 / 0.05) 62%, transparent 68%),
-    repeating-radial-gradient(circle at 50% 50%, #121018 0 1.5px, #1c1925 1.5px 3px);
+    /* oluklar */
+    repeating-radial-gradient(circle at 50% 50%, rgb(0 0 0 / 0.38) 0 1.5px, transparent 1.5px 3px),
+    /* renkli plak: albüm kapağının rengi (--art), kenara doğru koyulaşır */
+    radial-gradient(circle at 50% 50%, rgb(var(--art) / 0.95) 0 34%, color-mix(in srgb, rgb(var(--art)) 55%, #0c0a12) 70%, color-mix(in srgb, rgb(var(--art)) 30%, #0c0a12) 100%);
+  transition: background 0.8s ease;
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.04),
     0 24px 48px -16px rgb(0 0 0 / 0.8);

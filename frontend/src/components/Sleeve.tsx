@@ -58,7 +58,7 @@ export function Sleeve({ coverUrl, alt, spinning, preview }: Props) {
         <div className={clsx('vinyl-grooves size-full rounded-full', spinning && 'animate-record')}>
           <div
             className="absolute inset-[33%] grid place-items-center rounded-full"
-            style={{ backgroundColor: 'rgb(var(--art))' }}
+            style={{ backgroundColor: 'color-mix(in srgb, rgb(var(--art)) 55%, #f4efe6)', boxShadow: '0 0 0 2px rgb(0 0 0 / 0.25)' }}
           >
             <span className="size-[14%] rounded-full bg-night" />
           </div>

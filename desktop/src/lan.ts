@@ -11,7 +11,7 @@ const COOKIE = 'flacsync_lan';
 
 /** Telefondan yapılamayan işlemler */
 const BLOCKED: Array<[string, RegExp]> = [
-  ['DELETE', /^\/api\/library\/tracks\/[^/]+\/file/],
+  ['DELETE', /^\/api\/library\/tracks\/[^/]+(\/file)?\/?$/],
   ['POST', /^\/api\/library\/organize\/apply/],
   ['DELETE', /^\/api\/history/],
 ];

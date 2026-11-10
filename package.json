@@ -1,6 +1,6 @@
 {
   "name": "flacsync",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": true,
   "description": "Spotify, Apple Music, Deezer ve YouTube Music linklerinden ya da şarkı adından doğru kaydı bulup etiketli MP3/FLAC olarak kaydeden açık kaynak uygulama",
   "license": "MIT",
