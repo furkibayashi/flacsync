@@ -94,6 +94,24 @@ anahtarlarını ekleyip **Dosya → Yeniden başlat** de. Menü çubuğu **Alt**
 
 YouTube bir değişiklik yaptığında indirmeler bozulursa: **Araçlar → yt-dlp'yi güncelle**.
 
+## Kod imzalama politikası / Code signing policy
+
+Windows sürümleri için ücretsiz kod imzalama [SignPath.io](https://about.signpath.io) tarafından,
+sertifika ise [SignPath Foundation](https://signpath.org) tarafından sağlanmaktadır
+(başvuru sürecinde; onaylanana kadar dosyalar imzasızdır).
+
+*Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org)* (application pending; releases are unsigned until approved).
+
+- **Yazarlar ve inceleyiciler / Committers and reviewers:** [furkibayashi](https://github.com/furkibayashi)
+- **Onaylayıcılar / Approvers:** [furkibayashi](https://github.com/furkibayashi)
+- Yalnızca bu depodaki koddan GitHub Actions ile derlenen dosyalar imzalanır. Ayrıntılar:
+  [CODE_SIGNING.md](CODE_SIGNING.md). / Only files built from this repository by GitHub Actions are signed.
+
+**Gizlilik / Privacy:** Bu program, kullanıcı tarafından açıkça istenmedikçe herhangi bir ağ sistemine
+bilgi aktarmaz. / This program will not transfer any information to other networked systems unless
+specifically requested by the user or the person installing or operating it.
+
 ## Geliştirme
 
 Gereksinimler: **Node.js 20+**, Windows (masaüstü paketi için). Python gerekmez.
