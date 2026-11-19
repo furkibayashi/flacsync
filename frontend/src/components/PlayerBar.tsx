@@ -23,6 +23,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { ArtistLinks } from './ArtistLinks';
 import { AddToPlaylist } from './AddToPlaylist';
+import { QueueList } from './QueueList';
 import { LyricsPanel } from './LyricsPanel';
 import { NowPlaying } from './NowPlaying';
 import { SleepTimerButton } from './SleepTimer';
@@ -102,7 +103,7 @@ export function SeekBar() {
 }
 
 function QueuePopover({ onClose }: { onClose: () => void }) {
-  const { queue, index, jumpTo } = usePlayer();
+  const { queue } = usePlayer();
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -131,29 +132,7 @@ function QueuePopover({ onClose }: { onClose: () => void }) {
       <p className="border-b border-rule px-4 py-3 font-display text-sm font-bold text-paper">
         {t('player.queueTitle', { count: queue.length })}
       </p>
-      <ol className="relative max-h-80 overflow-y-auto py-1">
-        {queue.map((track, i) => (
-          <li key={`${track.id}-${i}`}>
-            <button
-              type="button"
-              aria-current={i === index}
-              onClick={() => jumpTo(i)}
-              className={clsx(
-                'flex w-full items-center gap-3 px-4 py-2 text-left transition hover:bg-raised',
-                i === index && 'bg-raised/70',
-              )}
-            >
-              <span className="w-5 shrink-0 text-right text-xs text-fade tabular-nums">{i + 1}</span>
-              <span className="min-w-0 flex-1">
-                <span className={clsx('block truncate text-sm', i === index ? 'font-semibold text-amber' : 'text-paper')}>
-                  {track.title}
-                </span>
-                <span className="block truncate text-xs text-dust">{track.artist}</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ol>
+      <QueueList className="max-h-96" />
     </div>
   );
 }
@@ -319,7 +298,7 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
               <Download className="size-4" />
             </button>
           )}
-          <div className="relative hidden sm:block">
+          <div className="relative">
             <button
               type="button"
               onClick={() => setShowQueue((v) => !v)}

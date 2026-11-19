@@ -22,6 +22,7 @@ import type {
   DownloadJob,
   HistoryResponse,
   QueueSnapshot,
+  QueueState,
   LookupResponse,
   OutputFormat,
   ParseResponse,
@@ -118,6 +119,9 @@ export const api = {
 
   clearFinished: () => request<{ removed: number }>('/queue/finished', { method: 'DELETE' }),
 
+  resumeQueue: (retryFailed: boolean) =>
+    request<{ state: QueueState; retried: number }>('/queue/resume', post({ retryFailed })),
+
   history: (limit = 50, offset = 0) => request<HistoryResponse>(`/history?limit=${limit}&offset=${offset}`),
 
   removeHistory: (id: string) => request<{ removed: boolean }>(`/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -197,6 +201,9 @@ export const api = {
   syncUpdate: (id: string, patch: { enabled?: boolean; format?: OutputFormat }) =>
     request<WatchedPlaylist>(`/sync/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   syncRemove: (id: string) => request<{ removed: boolean }>(`/sync/${id}`, { method: 'DELETE' }),
+
+  matchLibrary: (items: Array<{ artist: string; title: string }>) =>
+    request<{ ids: Array<string | null> }>('/library/match', post({ items })),
 
   findArtist: (name: string, signal?: AbortSignal) =>
     request<{ artist: ArtistSummary | null }>(`/artist/find?name=${encodeURIComponent(name)}`, { signal }),

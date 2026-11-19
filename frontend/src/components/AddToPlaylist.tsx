@@ -1,8 +1,9 @@
 import clsx from 'clsx';
-import { Check, ListPlus, Plus } from 'lucide-react';
+import { Check, ListEnd, ListPlus, ListStart, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { api } from '../services/api';
+import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { usePlaylists } from '../state/playlists';
 import { MenuItem, Popover } from './Popover';
 
@@ -12,13 +13,17 @@ export function AddToPlaylist({
   className,
   side = 'top',
   variant = 'icon',
+  playerTracks,
 }: {
   trackIds: string[];
   className?: string;
   side?: 'top' | 'bottom';
   variant?: 'icon' | 'button';
+  /** Verilirse menüde "Sonra çal" ve "Sıraya ekle" de olur */
+  playerTracks?: PlayerTrack[];
 }) {
   const { t } = useI18n();
+  const player = usePlayer();
   const { playlists, reload } = usePlaylists();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -84,6 +89,29 @@ export function AddToPlaylist({
     >
       {(close) => (
         <div className="max-h-80 overflow-y-auto">
+          {playerTracks && playerTracks.length > 0 && (
+            <>
+              <MenuItem
+                icon={<ListStart className="size-4 text-amber" />}
+                onClick={() => {
+                  player.playNext(playerTracks);
+                  close();
+                }}
+              >
+                {t('player.playNext')}
+              </MenuItem>
+              <MenuItem
+                icon={<ListEnd className="size-4 text-amber" />}
+                onClick={() => {
+                  player.addToQueue(playerTracks);
+                  close();
+                }}
+              >
+                {t('player.addToQueue')}
+              </MenuItem>
+              <span className="my-1 block h-px bg-rule" />
+            </>
+          )}
           <p className="px-4 pt-1.5 pb-2 text-xs font-bold tracking-wide text-fade uppercase">{t('playlist.addTo')}</p>
           {creating ? (
             <form

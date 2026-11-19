@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ArrowLeft, Clock, Download, FolderOpen, Flame, ListMusic, Play, Plus, Shuffle, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Clock, Download, FolderOpen, Flame, ListMusic, Play, Plus, Shuffle, Sparkles, Trash2, ListEnd } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { api } from '../services/api';
@@ -307,6 +307,10 @@ export function PlaylistDetail({
             <button type="button" disabled={!list.length} onClick={() => play(0, true)} className={clsx(btn, 'disabled:opacity-40')}>
               <Shuffle className="size-4" />
               {t('library.shuffle')}
+            </button>
+            <button type="button" disabled={!list.length} onClick={() => player.addToQueue(list.map(toPlayerTrack))} className={clsx(btn, 'disabled:opacity-40')}>
+              <ListEnd className="size-4" />
+              {t('player.addToQueue')}
             </button>
             {playlist && (
               <>

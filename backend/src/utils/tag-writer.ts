@@ -1,18 +1,42 @@
+import { randomUUID } from 'node:crypto';
 import { rename, rm, stat, writeFile } from 'node:fs/promises';
 import { extname, join, parse } from 'node:path';
 import NodeID3 from 'node-id3';
 import { runFfmpeg } from './ffmpeg.js';
 
 /**
+ * Aynı dosyaya aynı anda iki yazma (ör. "türleri düzelt" + elle etiket) birbirini ezmesin:
+ * dosya başına sıra. Anahtar küçük harf (Windows yolları büyük-küçük harf duyarsız).
+ */
+const locks = new Map<string, Promise<unknown>>();
+
+export function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
+  const key = file.toLowerCase();
+  const prev = locks.get(key) ?? Promise.resolve();
+  const next = prev.catch(() => undefined).then(fn);
+  locks.set(key, next);
+  void next.finally(() => {
+    if (locks.get(key) === next) locks.delete(key);
+  }).catch(() => undefined);
+  return next;
+}
+
+/**
  * Var olan bir FLAC dosyasının Vorbis etiketlerini değiştirir. Ses yeniden kodlanmaz (-c copy),
  * mevcut etiketler korunur (-map_metadata 0). `cover` verilirse gömülü kapak onunla değişir.
  * Önce geçici dosyaya yazılır; boyut denetiminden geçerse asıl dosyanın yerine konur.
  */
-export async function rewriteFlacTags(file: string, metadataArgs: string[], tag = 'tags', cover?: Buffer): Promise<void> {
-  if (metadataArgs.length === 0 && !cover) return;
+export function rewriteFlacTags(file: string, metadataArgs: string[], tag = 'tags', cover?: Buffer): Promise<void> {
+  if (metadataArgs.length === 0 && !cover) return Promise.resolve();
+  return withFileLock(file, () => rewriteFlacTagsNow(file, metadataArgs, tag, cover));
+}
+
+async function rewriteFlacTagsNow(file: string, metadataArgs: string[], tag: string, cover?: Buffer): Promise<void> {
   const { dir, name } = parse(file);
-  const tmp = join(dir, `.${name}.${tag}-${process.pid}.flac`);
-  const coverFile = cover ? join(dir, `.${name}.cover-${process.pid}.jpg`) : null;
+  // Her yazma kendi geçici dosyasını kullanır (eskiden aynı ad paylaşılıyordu)
+  const unique = randomUUID().slice(0, 8);
+  const tmp = join(dir, `.${name}.${tag}-${unique}.flac`);
+  const coverFile = cover ? join(dir, `.${name}.cover-${unique}.jpg`) : null;
   try {
     let inputs = [file];
     let maps = ['-map', '0'];
@@ -65,8 +89,8 @@ export async function writeTags(file: string, fields: TagFields, cover?: Buffer)
     if (cover) {
       tags.image = { mime: 'image/jpeg', type: { id: 3, name: 'front cover' }, description: 'Cover', imageBuffer: cover };
     }
-    const result = NodeID3.update(tags, file);
-    if (result instanceof Error) throw result;
+    // Eşzamansız sürüm: büyük dosyada sunucuyu (ve SSE akışlarını) bloklamaz
+    await withFileLock(file, () => NodeID3.Promise.update(tags, file));
     return;
   }
   if (ext === '.flac') {

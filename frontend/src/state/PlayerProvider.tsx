@@ -56,12 +56,60 @@ interface PlayerActions {
   toggleShuffle: () => void;
   cycleRepeat: () => void;
   jumpTo: (index: number) => void;
+  /** Çalan şarkıdan hemen sonra çalınacak (Sonra çal) */
+  playNext: (tracks: PlayerTrack[]) => void;
+  /** Sıranın sonuna ekler (Sıraya ekle); sıra boşsa çalmaya başlar */
+  addToQueue: (tracks: PlayerTrack[]) => void;
+  /** Sıradan çıkarır */
+  removeAt: (index: number) => void;
+  /** Sıradaki yerini değiştirir (sürükle-bırak) */
+  move: (from: number, to: number) => void;
+  /** Çalan şarkıdan sonrakileri temizler */
+  clearUpcoming: () => void;
   close: () => void;
   /** Uyku zamanlayıcı: dakika sonra ya da 'track' = bu şarkı bitince durur; null iptal eder */
   setSleepTimer: (value: number | 'track' | null) => void;
 }
 
 export type SleepTimer = { kind: 'minutes'; endsAt: number } | { kind: 'track' } | null;
+
+/** Çalma sırası uygulama kapanınca kaybolmasın: sıra, yer ve konum saklanır, açılışta duraklatılmış yüklenir */
+const QUEUE_KEY = 'flacsync.player.queue';
+const MAX_SAVED = 500;
+
+interface SavedQueue {
+  queue: PlayerTrack[];
+  original: PlayerTrack[];
+  index: number;
+  time: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
+}
+
+const isTrack = (t: unknown): t is PlayerTrack => {
+  const x = t as Partial<PlayerTrack> | null;
+  return Boolean(x && typeof x.id === 'string' && typeof x.src === 'string' && x.src && typeof x.title === 'string');
+};
+
+function readSavedQueue(): SavedQueue | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? 'null') as Partial<SavedQueue> | null;
+    if (!raw || !Array.isArray(raw.queue)) return null;
+    const queue = raw.queue.filter(isTrack);
+    const index = Number(raw.index);
+    if (!queue.length || !(index >= 0 && index < queue.length)) return null;
+    return {
+      queue,
+      original: Array.isArray(raw.original) ? raw.original.filter(isTrack) : [],
+      index,
+      time: Number(raw.time) || 0,
+      shuffle: Boolean(raw.shuffle),
+      repeat: raw.repeat === 'all' || raw.repeat === 'one' ? raw.repeat : 'off',
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface Progress {
   time: number;
@@ -97,15 +145,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [eqPreset] = useEqPresetSetting();
   const [eqCustom] = useEqCustomSetting();
   const [muted, setMuted] = useState(false);
-  const [queue, setQueue] = useState<PlayerTrack[]>([]);
+  // Önceki oturumun sırası (çalmaya başlamadan, kaldığı yerde bekler)
+  const [saved] = useState(readSavedQueue);
+  const restoreRef = useRef<number | null>(saved ? saved.time : null);
+  const [queue, setQueue] = useState<PlayerTrack[]>(saved?.queue ?? []);
   /** Karıştırma kapatılınca dönülecek asıl sıra */
-  const [original, setOriginal] = useState<PlayerTrack[]>([]);
-  const [index, setIndex] = useState(-1);
+  const [original, setOriginal] = useState<PlayerTrack[]>(saved?.original ?? []);
+  const [index, setIndex] = useState(saved?.index ?? -1);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [shuffle, setShuffle] = useState(false);
-  const [repeat, setRepeat] = useState<RepeatMode>('off');
+  const [shuffle, setShuffle] = useState(saved?.shuffle ?? false);
+  const [repeat, setRepeat] = useState<RepeatMode>(saved?.repeat ?? 'off');
   const [progress, setProgress] = useState<Progress>({ time: 0, duration: 0 });
   /** Aynı parça yeniden seçilince de baştan çalınsın diye */
   const [playNonce, setPlayNonce] = useState(0);
@@ -133,6 +184,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     const { el: audio, reused, started } = engine.load(current.src, current.kind, current.loudness);
     setError(false);
+    if (restoreRef.current !== null) {
+      // Açılışta: önceki konuma sar ama kendiliğinden çalma
+      const at = restoreRef.current;
+      restoreRef.current = null;
+      const seekTo = () => {
+        if (at > 0 && Number.isFinite(audio.duration) && at < audio.duration - 2) audio.currentTime = at;
+        setProgress({ time: audio.currentTime, duration: Number.isFinite(audio.duration) ? audio.duration : 0 });
+      };
+      if (audio.readyState >= 1) seekTo();
+      else audio.addEventListener('loadedmetadata', seekTo, { once: true });
+      setLoading(false);
+      setPlaying(false);
+      return;
+    }
     if (started) {
       // Crossfade ile zaten başladı
       setProgress({ time: audio.currentTime, duration: Number.isFinite(audio.duration) ? audio.duration : 0 });
@@ -384,6 +449,99 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPlaying(false);
   }, []);
 
+  const playNext = useCallback<PlayerActions['playNext']>(
+    (tracks) => {
+      if (!tracks.length) return;
+      if (index < 0 || queue.length === 0) return playList(tracks);
+      setQueue((q) => [...q.slice(0, index + 1), ...tracks, ...q.slice(index + 1)]);
+      setOriginal((o) => [...o, ...tracks]);
+    },
+    [index, queue.length, playList],
+  );
+
+  const addToQueue = useCallback<PlayerActions['addToQueue']>(
+    (tracks) => {
+      if (!tracks.length) return;
+      if (index < 0 || queue.length === 0) return playList(tracks);
+      setQueue((q) => [...q, ...tracks]);
+      setOriginal((o) => [...o, ...tracks]);
+    },
+    [index, queue.length, playList],
+  );
+
+  const removeAt = useCallback<PlayerActions['removeAt']>(
+    (i) => {
+      if (i < 0 || i >= queue.length) return;
+      if (queue.length === 1) return close();
+      const removed = queue[i]!;
+      setQueue((q) => q.filter((_, j) => j !== i));
+      setOriginal((o) => o.filter((t) => t !== removed));
+      if (i < index) setIndex(index - 1);
+      else if (i === index) {
+        // Çalan şarkı çıkarıldı: sıradaki çalar (sondaysa bir öncekine geçilir)
+        if (i === queue.length - 1) setIndex(index - 1);
+        setPlayNonce((n) => n + 1);
+      }
+    },
+    [queue, index, close],
+  );
+
+  const move = useCallback<PlayerActions['move']>(
+    (from, to) => {
+      if (from === to || from < 0 || to < 0 || from >= queue.length || to >= queue.length) return;
+      setQueue((q) => {
+        const next = [...q];
+        const [item] = next.splice(from, 1);
+        next.splice(to, 0, item!);
+        return next;
+      });
+      // Çalan şarkı yerinde kalır, kimliği takip edilir
+      if (from === index) setIndex(to);
+      else if (from < index && to >= index) setIndex(index - 1);
+      else if (from > index && to <= index) setIndex(index + 1);
+    },
+    [queue.length, index],
+  );
+
+  const clearUpcoming = useCallback(() => {
+    if (index < 0) return;
+    setQueue((q) => q.slice(0, index + 1));
+  }, [index]);
+
+  // Sırayı sakla (konum ayrıca birkaç saniyede bir)
+  const timeRef = useRef(0);
+  timeRef.current = progress.time;
+  useEffect(() => {
+    const save = () => {
+      try {
+        if (index < 0 || !queue.length) {
+          localStorage.removeItem(QUEUE_KEY);
+          return;
+        }
+        // Çok uzun sıralarda çalan şarkının çevresi saklanır
+        const start = Math.max(0, Math.min(index - 50, queue.length - MAX_SAVED));
+        const data: SavedQueue = {
+          queue: queue.slice(start, start + MAX_SAVED),
+          original: original.length <= MAX_SAVED ? original : [],
+          index: index - start,
+          time: timeRef.current,
+          shuffle,
+          repeat,
+        };
+        localStorage.setItem(QUEUE_KEY, JSON.stringify(data));
+      } catch {
+        // depolama dolu / kapalı
+      }
+    };
+    save();
+    const t = setInterval(save, 5_000);
+    window.addEventListener('beforeunload', save);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('beforeunload', save);
+    };
+  }, [queue, original, index, shuffle, repeat]);
+
   // Klavye: boşluk = çal / duraklat, ←/→ = 5 sn, Shift+←/→ = önceki / sonraki
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -421,7 +579,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     ms.setActionHandler('pause', () => toggle());
     ms.setActionHandler('nexttrack', () => next());
     ms.setActionHandler('previoustrack', () => prev());
-  }, [current, toggle, next, prev]);
+    try {
+      ms.setActionHandler('seekto', (d) => {
+        if (typeof d.seekTime === 'number') seek(d.seekTime);
+      });
+    } catch {
+      // eski tarayıcı
+    }
+  }, [current, toggle, next, prev, seek]);
+
+  useEffect(() => {
+    const ms = navigator.mediaSession;
+    if (!ms?.setPositionState || !current || !progress.duration) return;
+    try {
+      ms.setPositionState({ duration: progress.duration, position: Math.min(progress.time, progress.duration), playbackRate: 1 });
+    } catch {
+      // geçersiz değerler yoksayılır
+    }
+  }, [current, progress.time, progress.duration]);
 
   const value = useMemo(
     () => ({
@@ -453,8 +628,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       close,
       sleepTimer,
       setSleepTimer,
+      playNext,
+      addToQueue,
+      removeAt,
+      move,
+      clearUpcoming,
     }),
-    [queue, index, current, playing, loading, shuffle, repeat, volume, muted, error, playList, toggleTrack, toggle, next, prev, seek, getTime, setVolume, toggleShuffle, cycleRepeat, close, sleepTimer, setSleepTimer],
+    [queue, index, current, playing, loading, shuffle, repeat, volume, muted, error, playList, toggleTrack, toggle, next, prev, seek, getTime, setVolume, toggleShuffle, cycleRepeat, close, sleepTimer, setSleepTimer, playNext, addToQueue, removeAt, move, clearUpcoming],
   );
 
   return (

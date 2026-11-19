@@ -17,13 +17,14 @@ async function main(): Promise<void> {
   const server = app.listen(env.PORT, () => {
     logger.info(`API hazır → http://localhost:${env.PORT}/api (ortam: ${env.NODE_ENV})`);
   });
+  jobsService.restore();
   jobsService.startSweeper();
   syncService.start();
 
   const shutdown = (signal: string) => {
     logger.info(`${signal} alındı, sunucu kapatılıyor`);
     jobsService.stopSweeper();
-    void historyService.flush().finally(() => server.close(() => process.exit(0)));
+    void Promise.all([historyService.flush(), jobsService.flush()]).finally(() => server.close(() => process.exit(0)));
     // Açık SSE bağlantıları kapanmayı engellemesin
     setTimeout(() => process.exit(0), 5_000).unref();
   };

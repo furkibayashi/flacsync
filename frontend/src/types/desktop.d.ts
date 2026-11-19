@@ -38,6 +38,7 @@ declare global {
     flacsync?: {
       isDesktop: true;
       revealFile(jobId: string): Promise<boolean>;
+      unsavedJobs?(ids: string[]): Promise<string[]>;
       saveAs(jobId: string): Promise<string | null>;
       openSaveFolder(folder?: string): Promise<void>;
       appInfo(): Promise<{ version: string; updateMode: DesktopUpdateState['mode']; saveDir: string }>;

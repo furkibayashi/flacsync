@@ -9,6 +9,8 @@ import { api, isAbort, toUiError, type UiError } from '../services/api';
 import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { useQueue } from '../state/QueueProvider';
 import { useStoredState } from '../state/settings';
+import { libraryPlayerTrack, useLibraryMatch } from '../state/libraryMatch';
+import { InLibraryBadge } from '../components/InLibraryBadge';
 import type { DiscoverAlbum, DiscoverResponse, DiscoverTrack } from '../types/api';
 
 /** Sunucudaki tür listesiyle aynı (backend/src/services/discover.service.ts) */
@@ -82,12 +84,14 @@ function TrackRow({
   onPlay,
   onAdd,
   added,
+  owned,
 }: {
   track: DiscoverTrack;
   index: number;
   onPlay: () => void;
   onAdd: () => void;
   added: boolean;
+  owned: boolean;
 }) {
   const { t } = useI18n();
   const { current, playing } = usePlayer();
@@ -106,11 +110,14 @@ function TrackRow({
         {track.coverUrl && <img src={track.coverUrl} alt="" loading="lazy" className="size-full object-cover" />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className={clsx('block truncate font-semibold', active ? 'text-amber' : 'text-paper')}>{track.title}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className={clsx('truncate font-semibold', active ? 'text-amber' : 'text-paper')}>{track.title}</span>
+          {owned && <InLibraryBadge compact />}
+        </span>
         <ArtistLinks names={track.artist} className="block truncate text-sm text-dust" />
       </span>
       <span className="hidden min-w-0 flex-1 truncate text-sm text-fade lg:block">{track.album}</span>
-      <RowPlayButton active={active} playing={active && playing} onClick={onPlay} disabled={!track.previewUrl} />
+      <RowPlayButton active={active} playing={active && playing} onClick={onPlay} disabled={!track.previewUrl && !owned} />
       <button
         type="button"
         onClick={onAdd}
@@ -164,8 +171,17 @@ export function DiscoverPage({ onOpen }: { onOpen: (url: string) => void }) {
     }
   }, [lang]);
 
-  const playable = useMemo(() => (data?.tracks ?? []).filter((tr) => tr.previewUrl), [data]);
-  const playerTracks = useMemo(() => playable.map(toPlayerTrack), [playable]);
+  // Kütüphanede olanlar tam uzunlukta, diğerleri 30 sn önizleme
+  const ownedId = useLibraryMatch(data?.tracks ?? []);
+  const playerTracks = useMemo(
+    () =>
+      (data?.tracks ?? []).flatMap((tr): PlayerTrack[] => {
+        const libId = ownedId(tr.artist, tr.title);
+        if (libId) return [{ ...libraryPlayerTrack(libId, tr), id: `discover:${tr.id}` }];
+        return tr.previewUrl ? [toPlayerTrack(tr)] : [];
+      }),
+    [data, ownedId],
+  );
   const visible = showAll ? data?.tracks ?? [] : (data?.tracks ?? []).slice(0, FIRST_PAGE);
   const genreLabel = t(`genre.${GENRES.find((g) => g.id === genre)?.key ?? 'all'}` as 'genre.all');
 
@@ -311,6 +327,7 @@ export function DiscoverPage({ onOpen }: { onOpen: (url: string) => void }) {
                   onPlay={() => playFrom(track)}
                   onAdd={() => void add(track)}
                   added={added.has(track.id)}
+                  owned={Boolean(ownedId(track.artist, track.title))}
                 />
               ))}
             </ol>

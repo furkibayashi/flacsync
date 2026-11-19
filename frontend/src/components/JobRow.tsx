@@ -79,7 +79,12 @@ export function JobRow({ job, compact = false }: { job: DownloadJob; compact?: b
 
         {active || job.status === 'queued' ? (
           <div className="flex items-center gap-3">
-            <span className="shrink-0 text-xs font-medium text-amber">{t(`status.${job.status}` as const)}</span>
+            <span className="shrink-0 text-xs font-medium text-amber">
+              {job.status === 'queued' && (job.attempt ?? 0) >= 1
+                ? t('queue.retrying', { attempt: (job.attempt ?? 1) + 1, max: 3 })
+                : t(`status.${job.status}` as const)}
+              {active && (job.attempt ?? 1) > 1 && <span className="ml-1 text-fade">· {t('queue.attempt', { attempt: job.attempt ?? 1 })}</span>}
+            </span>
             <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-rule">
               <span className="block h-full rounded-full bg-amber transition-[width] duration-500" style={{ width: `${job.progress}%` }} />
             </span>

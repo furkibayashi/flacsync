@@ -1,7 +1,9 @@
 import clsx from 'clsx';
 import { AudioLines, Check, ChevronDown, Disc3, ListPlus, Loader2, Play, Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { libraryPlayerTrack, useLibraryMatch } from '../state/libraryMatch';
 import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
+import { InLibraryBadge } from './InLibraryBadge';
 import { useI18n } from '../i18n/I18nProvider';
 import { ArtistLinks } from './ArtistLinks';
 import { formatDuration, PLATFORM_DOT, PLATFORM_LABEL } from '../lib/format';
@@ -61,24 +63,33 @@ export function ResultsList({
 
   const pickedResults = results.filter((r) => picked.has(r.id));
 
-  // Kapağa tıklayınca 30 sn önizleme; sonraki / önceki listedeki diğer önizlemelere geçer
+  // Kütüphanede olanlar: rozet + tam uzunlukta çalma
+  const ownedId = useLibraryMatch(results);
+
+  // Kapağa tıklayınca çalar (kütüphanede varsa tam şarkı, yoksa 30 sn önizleme); sonraki / önceki listedekilere geçer
   const player = usePlayer();
   const previews = useMemo<PlayerTrack[]>(
     () =>
-      results
-        .filter((r) => r.previewUrl)
-        .map((r) => ({
-          id: `search:${r.id}`,
-          title: r.title,
-          artist: r.artist,
-          album: r.album,
-          coverUrl: r.coverUrl,
-          src: r.previewUrl!,
-          kind: 'preview',
-          sourceUrl: r.url,
-        })),
-    [results],
+      results.flatMap((r): PlayerTrack[] => {
+        const libId = ownedId(r.artist, r.title);
+        if (libId) return [{ ...libraryPlayerTrack(libId, r), id: `search:${r.id}` }];
+        if (!r.previewUrl) return [];
+        return [
+          {
+            id: `search:${r.id}`,
+            title: r.title,
+            artist: r.artist,
+            album: r.album,
+            coverUrl: r.coverUrl,
+            src: r.previewUrl,
+            kind: 'preview',
+            sourceUrl: r.url,
+          },
+        ];
+      }),
+    [results, ownedId],
   );
+  const canPlay = (r: SearchResult) => Boolean(r.previewUrl || ownedId(r.artist, r.title));
   const playPreview = (r: SearchResult) => {
     const id = `search:${r.id}`;
     if (player.current?.id === id) return player.toggle();
@@ -117,11 +128,11 @@ export function ResultsList({
               />
               <button
                 type="button"
-                onClick={() => (r.previewUrl ? playPreview(r) : onSelect(r))}
-                title={r.previewUrl ? t('track.previewPlay') : undefined}
-                aria-label={r.previewUrl ? `${t('track.previewPlay')}: ${r.title}` : undefined}
-                tabIndex={r.previewUrl ? 0 : -1}
-                aria-hidden={r.previewUrl ? undefined : true}
+                onClick={() => (canPlay(r) ? playPreview(r) : onSelect(r))}
+                title={canPlay(r) ? t('track.previewPlay') : undefined}
+                aria-label={canPlay(r) ? `${t('track.previewPlay')}: ${r.title}` : undefined}
+                tabIndex={canPlay(r) ? 0 : -1}
+                aria-hidden={canPlay(r) ? undefined : true}
                 className="group/cover relative size-11 overflow-hidden rounded bg-raised"
               >
                 {r.coverUrl ? (
@@ -132,7 +143,7 @@ export function ResultsList({
                 <span className="absolute top-0.5 left-0.5 rounded bg-night/80 px-1 text-[10px] font-bold text-dust tabular-nums">
                   {index + 1}
                 </span>
-                {r.previewUrl && (
+                {canPlay(r) && (
                   <span
                     className={clsx(
                       'absolute inset-0 grid place-items-center bg-black/55 text-white transition',
@@ -157,9 +168,10 @@ export function ResultsList({
                   }}
                   aria-current={selected ? 'true' : undefined}
                   aria-label={t('results.choose', { title: r.title, artist: r.artist })}
-                  className={clsx('block max-w-full truncate text-left font-medium', selected ? 'text-amber' : 'text-paper group-hover:text-paper')}
+                  className={clsx('flex max-w-full items-center gap-2 text-left font-medium', selected ? 'text-amber' : 'text-paper group-hover:text-paper')}
                 >
-                  {r.title}
+                  <span className="truncate">{r.title}</span>
+                  {ownedId(r.artist, r.title) && <InLibraryBadge compact />}
                 </button>
                 <span className="block truncate text-sm text-dust">
                   <ArtistLinks names={r.artist} />

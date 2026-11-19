@@ -2,11 +2,12 @@ import { copyFile } from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join, parse } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import dotenv from 'dotenv';
 import { setupCompanion } from './companion.js';
 import { LanShare } from './lan.js';
 import { Updater } from './updater.js';
+import { downloadHealth } from '../../backend/src/utils/download-errors.js';
 import { ensureYtDlpDir, updateYtDlpDir } from './ytdlp-dir.js';
 import {
   app,
@@ -160,7 +161,14 @@ async function startServer(): Promise<{ server: Server; url: string }> {
   // Silinen dosyalar Geri Dönüşüm Kutusu'na gitsin
   libraryService.setTrashHandler((file) => shell.trashItem(file));
   flushHistory = () =>
-    Promise.all([historyService.flush(), libraryService.flush(), playlistService.flush(), followService.flush(), syncService.flush()]).then(
+    Promise.all([
+      historyService.flush(),
+      libraryService.flush(),
+      playlistService.flush(),
+      followService.flush(),
+      syncService.flush(),
+      jobsService.flush(),
+    ]).then(
       () => undefined,
     );
   attachToLibrary = (jobId, file) => void libraryService.attach(jobId, file);
@@ -177,7 +185,10 @@ async function startServer(): Promise<{ server: Server; url: string }> {
       srv.once('error', reject);
     });
   const server = await listen(PREFERRED_PORT).catch(() => listen(0));
+  // Önceki oturumda yarım kalan indirmeler kaldığı yerden devam eder
+  jobsService.restore();
   jobsService.startSweeper();
+  watchYtDlpHealth(jobsService);
 
   lanShare = new LanShare(app);
 
@@ -355,6 +366,11 @@ function setupDownloads(): void {
 
 /** Arayüzün çağırabildiği iki işlem (preload.ts üzerinden). Girdiler doğrulanır. */
 function setupIpc(): void {
+  // Pencere yenilenirken biten indirmeler kaydedilmemiş kalmasın: arayüz hangilerinin eksik olduğunu sorar
+  ipcMain.handle('flacsync:unsaved-jobs', (_e, ids: unknown) =>
+    Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && JOB_ID.test(id) && !savedByJob.has(id)) : [],
+  );
+
   ipcMain.handle('flacsync:reveal-file', (_e, jobId: unknown) => {
     const file = typeof jobId === 'string' && JOB_ID.test(jobId) ? savedByJob.get(jobId) : undefined;
     if (file && existsSync(file)) {
@@ -455,6 +471,68 @@ async function updateYtDlp(): Promise<void> {
       detail: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// yt-dlp'yi kendiliğinden güncelleme
+// ---------------------------------------------------------------------------
+
+type JobsServiceLike = {
+  snapshot(): { stats: { active: number } };
+  resume(options?: { retryFailed?: boolean; codes?: string[] }): number;
+};
+
+const YTDLP_AUTO_MIN_INTERVAL_MS = 6 * 60 * 60_000;
+const YTDLP_WEEKLY_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * İndirmeler "yt-dlp eski" türü hatayla düşünce (YouTube değiştiğinde olur) ya da haftada bir:
+ * çalışan indirmeler bitince yt-dlp sessizce güncellenir (SHA-256 doğrulamalı), o hatayla
+ * başarısız olan indirmeler yeniden sıraya konur. Elle güncellemeye gerek kalmaz.
+ */
+function watchYtDlpHealth(jobs: JobsServiceLike): void {
+  const stampFile = join(paths.userData, 'data', 'ytdlp-check.json');
+  const lastCheck = (): number => {
+    try {
+      return Number((JSON.parse(readFileSync(stampFile, 'utf8')) as { at?: number }).at) || 0;
+    } catch {
+      return 0;
+    }
+  };
+  let running = false;
+  let lastAttempt = 0;
+
+  const run = async (reason: 'failures' | 'weekly') => {
+    if (running || Date.now() - lastAttempt < YTDLP_AUTO_MIN_INTERVAL_MS) return;
+    running = true;
+    lastAttempt = Date.now();
+    try {
+      // yt-dlp klasörü kullanımdayken değiştirilemez: çalışan indirmelerin bitmesi beklenir (en çok 3 dk)
+      for (let i = 0; i < 36 && jobs.snapshot().stats.active > 0; i++) await new Promise((r) => setTimeout(r, 5_000));
+      const result = await updateYtDlpDir(paths.ytDlpDir, join(app.getPath('temp'), APP_NAME));
+      mkdirSync(dirname(stampFile), { recursive: true });
+      writeFileSync(stampFile, JSON.stringify({ at: Date.now(), version: result.to }), 'utf8');
+      if (result.updated) {
+        const retried = jobs.resume({ retryFailed: true, codes: ['YTDLP_OUTDATED', 'YTDLP_FORBIDDEN'] });
+        if (Notification.isSupported()) {
+          new Notification({
+            title: APP_NAME,
+            body: retried
+              ? `yt-dlp güncellendi (${result.to}); ${retried} indirme yeniden deneniyor.`
+              : `yt-dlp güncellendi (${result.to}).`,
+          }).show();
+        }
+      }
+      console.info(`yt-dlp otomatik kontrol (${reason}): ${result.from} → ${result.to}`);
+    } catch (err) {
+      console.warn('yt-dlp otomatik güncellenemedi:', err);
+    } finally {
+      running = false;
+    }
+  };
+
+  downloadHealth.on('outdated', () => void run('failures'));
+  if (Date.now() - lastCheck() > YTDLP_WEEKLY_MS) setTimeout(() => void run('weekly'), 90_000).unref();
 }
 
 function showAbout(): void {

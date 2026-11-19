@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
 import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
+import { localGuard } from './middlewares/local-guard.js';
 import { apiRouter } from './routes/api.js';
 import { logger } from './utils/logger.js';
 
@@ -42,6 +43,9 @@ export function createApp(): express.Express {
       exposedHeaders: ['Content-Disposition', 'Location'],
     }),
   );
+
+  // Başka sitelerin ve DNS rebinding'in API'ye ulaşmasını engeller (bkz. local-guard.ts)
+  app.use('/api', localGuard);
 
   // Etiket düzenleyicide kapak resmi gövdede (base64) gelir; yalnızca o uç için büyük sınır
   app.use('/api/library/tracks/:id/tags', express.json({ limit: '15mb' }));

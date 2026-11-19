@@ -9,12 +9,41 @@ import QRCode from 'qrcode';
 export const LAN_PORT = 47822;
 const COOKIE = 'flacsync_lan';
 
-/** Telefondan yapılamayan işlemler */
+/**
+ * Telefondan yapılamayan işlemler (dosya silme / taşıma / etiket değiştirme, liste ve takip silme).
+ * Yol küçük harfe çevrilip normalleştirilerek karşılaştırılır: Express yolları büyük-küçük harf
+ * duyarsızdır, "/API/library/..." gibi yazımlar da yakalanır.
+ */
 const BLOCKED: Array<[string, RegExp]> = [
-  ['DELETE', /^\/api\/library\/tracks\/[^/]+(\/file)?\/?$/],
-  ['POST', /^\/api\/library\/organize\/apply/],
-  ['DELETE', /^\/api\/history/],
+  ['DELETE', /^\/api\/library\/tracks\//],
+  ['PATCH', /^\/api\/library\/tracks\//],
+  ['PUT', /^\/api\/library\/tracks\//],
+  ['POST', /^\/api\/library\/(organize\/apply|health\/fix|genres\/fix|tracks\/[^/]+\/(tags|lyrics))/],
+  ['DELETE', /^\/api\/(history|playlists|sync|follows)(\/|$)/],
 ];
+
+/** "/API//Library/./tracks/x/" → "/api/library/tracks/x" */
+export function normalizePath(pathname: string): string {
+  let p = pathname;
+  try {
+    p = decodeURIComponent(p);
+  } catch {
+    // bozuk kodlama: olduğu gibi
+  }
+  const parts: string[] = [];
+  for (const seg of p.toLowerCase().split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return `/${parts.join('/')}`;
+}
+
+export function isBlockedOnLan(method: string | undefined, pathname: string): boolean {
+  const m = (method ?? 'GET').toUpperCase();
+  const p = normalizePath(pathname);
+  return BLOCKED.some(([blocked, re]) => m === blocked && re.test(p));
+}
 
 export interface LanStatus {
   enabled: boolean;
@@ -100,7 +129,7 @@ export class LanShare {
     }
     const cookie = cookieValue(req);
     if (!cookie || !safeEqual(cookie, this.token)) return deny(res);
-    if (BLOCKED.some(([method, re]) => req.method === method && re.test(url.pathname))) {
+    if (isBlockedOnLan(req.method, url.pathname)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Bu işlem yalnızca bilgisayardan yapılabilir' } }));
       return;

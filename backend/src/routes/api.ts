@@ -258,13 +258,22 @@ apiRouter.get('/queue/events', (req, res) => {
   const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   const offJobs = jobsService.subscribeAll((job, batch) => write('job', { job, batch }));
   const offRemoved = jobsService.onRemoved((id) => write('removed', { id }));
+  const offState = jobsService.onState((state) => write('state', state));
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000);
   req.on('close', () => {
     clearInterval(heartbeat);
     offJobs();
     offRemoved();
+    offState();
   });
   write('snapshot', jobsService.snapshot());
+});
+
+/** Duraklatılmış kuyruğu sürdür; retryFailed: başarısız indirmeleri de yeniden sıraya koy */
+apiRouter.post('/queue/resume', (req, res) => {
+  const { retryFailed } = z.object({ retryFailed: z.boolean().default(false) }).parse(req.body ?? {});
+  const retried = jobsService.resume({ retryFailed });
+  res.json({ state: jobsService.queueState, retried });
 });
 
 apiRouter.delete('/queue/finished', async (_req, res) => {
@@ -336,6 +345,18 @@ const libraryParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/) });
 
 apiRouter.get('/library', (_req, res) => {
   res.json(libraryService.list());
+});
+
+/** Hangi şarkılar zaten kütüphanede? (arama, albüm, sanatçı ve keşfet ekranlarındaki rozet için) */
+const matchBody = z.object({
+  items: z
+    .array(z.object({ artist: z.string().max(300), title: z.string().max(300) }))
+    .max(500),
+});
+
+apiRouter.post('/library/match', (req, res) => {
+  const { items } = matchBody.parse(req.body);
+  res.json({ ids: libraryService.match(items) });
 });
 
 apiRouter.post('/library/rescan', async (_req, res) => {

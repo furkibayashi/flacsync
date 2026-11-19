@@ -1,11 +1,13 @@
 import clsx from 'clsx';
-import { AlertCircle, AudioLines, Check, Download, FolderOpen, Loader2, Play, RotateCcw, Shuffle } from 'lucide-react';
-import { useCallback, useMemo, useState, type CSSProperties } from 'react';
+import { AlertCircle, AudioLines, Check, Download, FolderOpen, ListEnd, Loader2, Play, RotateCcw, Shuffle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { usePreferredFormat } from '../hooks/usePreferredFormat';
 import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { isTerminal, useQueue } from '../state/QueueProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { libraryPlayerTrack, useLibraryMatch } from '../state/libraryMatch';
 import { ArtistLinks } from './ArtistLinks';
+import { InLibraryBadge } from './InLibraryBadge';
 import { formatDuration } from '../lib/format';
 import { api, isDesktopApp, openSaveFolder, revealSavedFile } from '../services/api';
 import type { BatchItem, Collection, CollectionTrack, DownloadJob, OutputFormat } from '../types/api';
@@ -142,23 +144,52 @@ export function CollectionView({ collection, onReset }: Props) {
   const allSelected = selected.size === collection.tracks.length;
   const multiDisc = useMemo(() => new Set(collection.tracks.map((tr) => tr.disc ?? 1)).size > 1, [collection.tracks]);
 
-  // Oynatıcı: platformun 30 sn önizlemeleri (Deezer / Apple / Spotify), albüm sırasıyla
+  // Kütüphanede zaten olan şarkılar: rozet, tam uzunlukta çalma, indirme seçiminden çıkarma
+  const ownedId = useLibraryMatch(collection.tracks);
+  const owned = useMemo(
+    () => new Map(collection.tracks.flatMap((tr) => {
+      const id = ownedId(tr.artist, tr.title);
+      return id ? [[tr.url, id] as const] : [];
+    })),
+    [collection.tracks, ownedId],
+  );
+  // Sahip olunanlar ilk açılışta seçimden çıkarılır ("Eksikleri indir"); kullanıcı yeniden seçebilir
+  const deselected = useRef(new Set<string>());
+  useEffect(() => {
+    const fresh = [...owned.keys()].filter((url) => !deselected.current.has(url));
+    if (!fresh.length) return;
+    fresh.forEach((url) => deselected.current.add(url));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      fresh.forEach((url) => next.delete(url));
+      return next;
+    });
+  }, [owned]);
+
+  // Oynatıcı: kütüphanede olanlar tam uzunlukta, diğerleri platformun 30 sn önizlemesi; albüm sırasıyla
   const player = usePlayer();
   const previews = useMemo<PlayerTrack[]>(
     () =>
-      collection.tracks
-        .filter((tr) => tr.previewUrl)
-        .map((tr) => ({
-          id: `col:${tr.url}`,
-          title: tr.title,
-          artist: tr.artist,
-          album: collection.title,
-          coverUrl: collection.coverUrl,
-          src: tr.previewUrl!,
-          kind: 'preview',
-          sourceUrl: tr.url,
-        })),
-    [collection],
+      collection.tracks.flatMap((tr): PlayerTrack[] => {
+        const libId = owned.get(tr.url);
+        if (libId) {
+          return [{ ...libraryPlayerTrack(libId, { title: tr.title, artist: tr.artist, album: collection.title, duration: tr.duration }), id: `col:${tr.url}` }];
+        }
+        if (!tr.previewUrl) return [];
+        return [
+          {
+            id: `col:${tr.url}`,
+            title: tr.title,
+            artist: tr.artist,
+            album: collection.title,
+            coverUrl: collection.coverUrl,
+            src: tr.previewUrl,
+            kind: 'preview',
+            sourceUrl: tr.url,
+          },
+        ];
+      }),
+    [collection, owned],
   );
   const playingHere = previews.some((p) => p.id === player.current?.id);
   const playTrack = (track: CollectionTrack) => {
@@ -257,6 +288,15 @@ export function CollectionView({ collection, onReset }: Props) {
                   <Shuffle className="size-4" />
                   {t('player.shuffle')}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => player.addToQueue(previews)}
+                  title={t('player.addToQueue')}
+                  className="inline-flex items-center gap-2 rounded-full bg-raised px-4 py-2.5 font-semibold text-paper ring-1 ring-rule transition hover:ring-dust"
+                >
+                  <ListEnd className="size-4" />
+                  {t('player.addToQueue')}
+                </button>
                 <span className="text-sm text-fade">{t('collection.previewNote', { count: previews.length })}</span>
               </div>
             )}
@@ -287,9 +327,11 @@ export function CollectionView({ collection, onReset }: Props) {
                 {downloads.bulkRunning ? <Loader2 className="size-5 animate-spin" /> : <Download className="size-5" strokeWidth={2.5} />}
                 {downloads.bulkRunning
                   ? t('status.downloading')
-                  : allSelected
-                    ? t('collection.downloadAll', { count: pending.length })
-                    : t('collection.downloadSelected', { count: pending.length })}
+                  : owned.size > 0 && owned.size < collection.tracks.length && pending.every((tr) => !owned.has(tr.url))
+                    ? t('collection.downloadMissing', { count: pending.length })
+                    : allSelected
+                      ? t('collection.downloadAll', { count: pending.length })
+                      : t('collection.downloadSelected', { count: pending.length })}
               </button>
               <button
                 type="button"
@@ -412,7 +454,7 @@ export function CollectionView({ collection, onReset }: Props) {
                       {track.position}
                     </>
                   );
-                  if (!track.previewUrl) return <span className="text-right text-sm text-fade tabular-nums">{number}</span>;
+                  if (!track.previewUrl && !owned.has(track.url)) return <span className="text-right text-sm text-fade tabular-nums">{number}</span>;
                   return (
                     <button
                       type="button"
@@ -433,7 +475,10 @@ export function CollectionView({ collection, onReset }: Props) {
                   );
                 })()}
                 <span className="min-w-0">
-                  <span className={clsx('block truncate', player.current?.id === `col:${track.url}` ? 'text-amber' : 'text-paper')}>{track.title}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={clsx('truncate', player.current?.id === `col:${track.url}` ? 'text-amber' : 'text-paper')}>{track.title}</span>
+                    {owned.has(track.url) && <InLibraryBadge compact />}
+                  </span>
                   {showArtist && <ArtistLinks names={track.artist} className="block truncate text-sm text-dust" />}
                 </span>
                 <span className="hidden text-sm text-dust tabular-nums sm:block">{formatDuration(track.duration)}</span>

@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom';
 import { useI18n } from '../i18n/I18nProvider';
 import { usePlayer } from '../state/PlayerProvider';
 import { AddToPlaylist } from './AddToPlaylist';
+import { QueueList } from './QueueList';
 import { ArtistLinks } from './ArtistLinks';
 import { LyricsLines, SaveLyricsButton, useTrackLyrics } from './LyricsPanel';
 import { RangeSlider, SeekBar } from './PlayerBar';
@@ -234,26 +235,7 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
           {tab === 'lyrics' ? (
             <LyricsLines state={lyricsState.state} size="lg" />
           ) : (
-            <ol className="min-h-0 flex-1 overflow-y-auto py-2">
-              {p.queue.map((q, i) => (
-                <li key={`${q.id}-${i}`}>
-                  <button
-                    type="button"
-                    onClick={() => p.jumpTo(i)}
-                    className={clsx('flex w-full items-center gap-3 px-5 py-2.5 text-left transition hover:bg-white/5', i === p.index && 'bg-white/10')}
-                  >
-                    <span className="w-6 text-right text-xs text-paper/50 tabular-nums">{i + 1}</span>
-                    <span className="size-10 shrink-0 overflow-hidden rounded bg-raised">
-                      {q.coverUrl && <img src={q.coverUrl} alt="" loading="lazy" className="size-full object-cover" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className={clsx('block truncate font-semibold', i === p.index ? 'text-amber' : 'text-paper')}>{q.title}</span>
-                      <span className="block truncate text-sm text-paper/60">{q.artist}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
+            <QueueList tone="dark" className="flex-1" />
           )}
         </section>
       </div>

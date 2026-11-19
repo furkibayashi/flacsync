@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import PQueue from 'p-queue';
 import sanitizeFilename from 'sanitize-filename';
+import { join, resolve } from 'node:path';
 import { env } from '../config/env.js';
+import {
+  classifyDownloadFailure,
+  downloadHealth,
+  isTransientFailure,
+  suggestsYtDlpUpdate,
+} from '../utils/download-errors.js';
+import { JsonStore } from '../utils/json-store.js';
 import { logger } from '../utils/logger.js';
 import { downloaderService, type DownloadedFile, type OutputFormat, type TagExtras } from './downloader.service.js';
 import { historyService } from './history.service.js';
@@ -61,6 +69,8 @@ export interface PublicJob {
   error: { code: string; message: string; status: number } | null;
   /** Aşama süreleri (ms) — tamamlanınca dolar */
   timings: JobTimings | null;
+  /** Kaçıncı deneme (geçici hatalarda kendiliğinden yeniden denenir) */
+  attempt: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,11 +116,52 @@ interface BatchRecord {
   createdAt: string;
 }
 
+/** Art arda çok iş başarısız olunca kuyruk duraklatılır (bağlantı kopması, YouTube engeli…) */
+export interface QueueState {
+  paused: boolean;
+  /** Duraklatma nedeni olan hata kodu */
+  reason: string | null;
+  pausedAt: string | null;
+}
+
 export interface QueueSnapshot {
   jobs: PublicJob[];
   batches: PublicBatch[];
   stats: { active: number; queued: number; completed: number; failed: number; cancelled: number };
+  state: QueueState;
 }
+
+/** Diske yazılan iş (uygulama kapanıp açılınca kaldığı yerden devam için) */
+interface StoredJob {
+  id: string;
+  url: string;
+  format: OutputFormat;
+  options: JobOptions;
+  status: 'queued' | 'failed' | 'cancelled';
+  error: PublicJob['error'];
+  metadata: TrackMetadata | null;
+  createdAt: string;
+}
+
+interface StoredQueue {
+  jobs: StoredJob[];
+  batches: BatchRecord[];
+}
+
+const MAX_ATTEMPTS = 3;
+/** 1. ve 2. yeniden denemeden önce bekleme (ms) */
+const BACKOFF_MS = [8_000, 30_000];
+/** Bu kadar iş art arda (yeniden denemelere rağmen) geçici hatayla biterse kuyruk durur */
+const PAUSE_AFTER_FAILURES = 5;
+
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      clearTimeout(t);
+      resolve();
+    }, { once: true });
+  });
 
 /** Aşamaların genel ilerleme çubuğundaki payı */
 const STAGE_RANGE: Record<'resolving' | 'downloading' | 'converting' | 'tagging', [number, number]> = {
@@ -151,10 +202,19 @@ function applyOverrides(meta: TrackMetadata, overrides: MetadataOverrides = {}):
   };
 }
 
-function errorInfo(err: unknown): { code: string; message: string; status: number } {
-  const e = err as { code?: unknown; name?: string; message?: string; statusCode?: unknown };
+const GENERIC_CODES = new Set(['DownloadError', 'YtDlpError', 'ERROR', 'Error', 'PROVIDER_ERROR', 'AxiosError']);
+
+export function errorInfo(err: unknown): { code: string; message: string; status: number } {
+  const e = err as { code?: unknown; name?: string; message?: string; statusCode?: unknown; stderr?: unknown };
+  let code = typeof e.code === 'string' ? e.code : e.name ?? 'ERROR';
+  // Genel kodlar: yt-dlp / ağ çıktısından anlamlı koda çevrilir (kullanıcıya doğru ipucu için)
+  if (GENERIC_CODES.has(code)) {
+    const detail = `${e.message ?? ''} ${typeof e.stderr === 'string' ? e.stderr : ''} ${String((e as { cause?: { message?: string } }).cause?.message ?? '')}`;
+    const refined = classifyDownloadFailure(detail);
+    if (refined !== 'DownloadError' || code === 'DownloadError') code = refined === 'DownloadError' ? code : refined;
+  }
   return {
-    code: typeof e.code === 'string' ? e.code : e.name ?? 'ERROR',
+    code,
     message: e.message ?? 'Bilinmeyen hata',
     status: typeof e.statusCode === 'number' ? e.statusCode : 500,
   };
@@ -180,17 +240,149 @@ export class JobsService {
   private readonly events = new EventEmitter();
   private readonly queue = new PQueue({ concurrency: env.MAX_CONCURRENT_DOWNLOADS });
   private sweeper: NodeJS.Timeout | null = null;
+  private store: JsonStore<StoredQueue> | null = null;
+  private state: QueueState = { paused: false, reason: null, pausedAt: null };
+  private consecutiveFailures = 0;
 
   constructor() {
     this.events.setMaxListeners(0);
   }
 
+  // --- Kalıcılık -----------------------------------------------------------
+
+  /**
+   * Önceki oturumdan kalan işleri yükler: bitmemiş olanlar yeniden sıraya girer, başarısızlar
+   * "yeniden dene" için listede kalır. Sunucu açılırken bir kez çağrılır.
+   */
+  restore(dataDir = resolve(env.DATA_DIR)): number {
+    if (this.store) return 0;
+    this.store = new JsonStore<StoredQueue>(join(dataDir, 'queue.json'), { jobs: [], batches: [] }, (raw) => {
+      const r = raw as Partial<StoredQueue> | null;
+      return r && Array.isArray(r.jobs) && Array.isArray(r.batches) ? { jobs: r.jobs, batches: r.batches } : null;
+    });
+    const saved = this.store.data;
+    const ids = new Set(saved.jobs.map((j) => j.id));
+    for (const b of saved.batches) {
+      const jobIds = b.jobIds.filter((id) => ids.has(id));
+      if (jobIds.length) this.batches.set(b.id, { ...b, jobIds });
+    }
+    let requeued = 0;
+    for (const sj of saved.jobs) {
+      if (sj.options.batchId && !this.batches.has(sj.options.batchId)) delete sj.options.batchId;
+      if (sj.status === 'queued') {
+        this.create(sj.url, sj.format, sj.options, { id: sj.id, createdAt: sj.createdAt });
+        requeued++;
+      } else {
+        this.addFinished(sj);
+      }
+    }
+    if (saved.jobs.length) logger.info({ requeued, total: saved.jobs.length }, 'Önceki oturumdan kalan indirmeler yüklendi');
+    return requeued;
+  }
+
+  /** Bitmemiş ve başarısız işleri diske yazar (tamamlananlar kütüphanede / geçmişte zaten var) */
+  private persist(): void {
+    if (!this.store) return;
+    const jobs: StoredJob[] = [];
+    for (const j of this.jobs.values()) {
+      if (j.status === 'completed') continue;
+      jobs.push({
+        id: j.id,
+        url: j.url,
+        format: j.format,
+        options: j.options,
+        status: j.status === 'failed' || j.status === 'cancelled' ? j.status : 'queued',
+        error: j.error,
+        metadata: j.metadata,
+        createdAt: j.createdAt,
+      });
+    }
+    const used = new Set(jobs.map((j) => j.options.batchId).filter(Boolean));
+    const batches = [...this.batches.values()].filter((b) => used.has(b.id));
+    this.store.set({ jobs, batches });
+  }
+
+  flush(): Promise<void> {
+    return this.store?.flush() ?? Promise.resolve();
+  }
+
+  private addFinished(sj: StoredJob): void {
+    const job: InternalJob = {
+      id: sj.id,
+      url: sj.url,
+      format: sj.format,
+      batchId: sj.options.batchId ?? null,
+      status: sj.status,
+      progress: 0,
+      message: STAGE_MESSAGE[sj.status],
+      platform: metadataService.detectPlatform(sj.url),
+      metadata: sj.metadata,
+      source: null,
+      file: null,
+      error: sj.error,
+      timings: null,
+      attempt: 0,
+      createdAt: sj.createdAt,
+      updatedAt: new Date().toISOString(),
+      options: sj.options,
+      filePath: null,
+      abort: new AbortController(),
+      done: Promise.resolve(),
+    };
+    this.jobs.set(job.id, job);
+  }
+
+  // --- Duraklatma ----------------------------------------------------------
+
+  get queueState(): QueueState {
+    return { ...this.state };
+  }
+
+  /** Duraklatılmış kuyruğu sürdürür; isteğe bağlı olarak başarısız işleri yeniden sıraya koyar */
+  resume(options: { retryFailed?: boolean; codes?: string[] } = {}): number {
+    let retried = 0;
+    if (options.retryFailed) {
+      for (const job of [...this.jobs.values()]) {
+        if (job.status !== 'failed') continue;
+        if (options.codes && !options.codes.includes(job.error?.code ?? '')) continue;
+        if (this.retry(job.id)) retried++;
+      }
+    }
+    this.consecutiveFailures = 0;
+    if (this.state.paused) {
+      this.state = { paused: false, reason: null, pausedAt: null };
+      this.queue.start();
+      this.events.emit('state', this.queueState);
+      logger.info({ retried }, 'İndirme kuyruğu sürdürüldü');
+    }
+    return retried;
+  }
+
+  onState(listener: (state: QueueState) => void): () => void {
+    this.events.on('state', listener);
+    return () => this.events.off('state', listener);
+  }
+
+  /** Eski iş yeniden denenince yeni kimlik alır (liste senkronu gibi takip edenler için) */
+  onReplaced(listener: (oldId: string, newId: string) => void): () => void {
+    this.events.on('replaced', listener);
+    return () => this.events.off('replaced', listener);
+  }
+
+  private pause(reason: string): void {
+    if (this.state.paused) return;
+    this.queue.pause();
+    this.state = { paused: true, reason, pausedAt: new Date().toISOString() };
+    this.events.emit('state', this.queueState);
+    logger.warn({ reason }, 'Art arda başarısız indirmeler: kuyruk duraklatıldı');
+  }
+
   // --- Tek işler -----------------------------------------------------------
 
-  create(url: string, format: OutputFormat, options: JobOptions = {}): PublicJob {
+  create(url: string, format: OutputFormat, options: JobOptions = {}, restored?: { id: string; createdAt: string }): PublicJob {
     const now = new Date().toISOString();
     const job: InternalJob = {
-      id: randomUUID(),
+      id: restored?.id ?? randomUUID(),
       url,
       format,
       batchId: options.batchId ?? null,
@@ -203,7 +395,8 @@ export class JobsService {
       file: null,
       error: null,
       timings: null,
-      createdAt: now,
+      attempt: 0,
+      createdAt: restored?.createdAt ?? now,
       updatedAt: now,
       options,
       filePath: null,
@@ -213,6 +406,7 @@ export class JobsService {
     this.jobs.set(job.id, job);
     job.done = this.queue.add(() => this.run(job), { throwOnTimeout: true });
     this.events.emit('any', this.toPublic(job));
+    this.persist();
     return this.toPublic(job);
   }
 
@@ -279,6 +473,8 @@ export class JobsService {
     }
     this.jobs.delete(id);
     this.events.emit('removed', id);
+    this.events.emit('replaced', id, job.id);
+    this.persist();
     return job;
   }
 
@@ -291,6 +487,7 @@ export class JobsService {
       await downloaderService.remove(job.id).catch(() => undefined);
     }
     this.pruneBatches();
+    this.persist();
     return finished.length;
   }
 
@@ -314,6 +511,7 @@ export class JobsService {
       jobs: jobs.map((j) => this.toPublic(j)),
       batches: [...this.batches.values()].map((b) => this.summarize(b)),
       stats,
+      state: this.queueState,
     };
   }
 
@@ -438,7 +636,41 @@ export class JobsService {
 
   private async run(job: InternalJob): Promise<void> {
     const signal = job.abort.signal;
-    if (signal.aborted) return; // sırada beklerken iptal edildi
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (signal.aborted) return; // sırada beklerken iptal edildi
+      job.attempt = attempt;
+      const outcome = await this.attemptOnce(job);
+      if (outcome === 'done') {
+        this.consecutiveFailures = 0;
+        return;
+      }
+      if (outcome === 'cancelled') return;
+
+      const code = job.error?.code ?? 'ERROR';
+      if (suggestsYtDlpUpdate(code)) downloadHealth.emit('outdated', code);
+      if (!isTransientFailure(code) || attempt === MAX_ATTEMPTS) break;
+
+      // Geçici hata: bekleyip yeniden dene (sıra kaybedilmez)
+      const wait = BACKOFF_MS[attempt - 1] ?? 30_000;
+      this.update(job, {
+        status: 'queued',
+        error: null,
+        message: `Yeniden denenecek (${attempt + 1}/${MAX_ATTEMPTS})`,
+        attempt,
+      });
+      await sleep(wait, signal);
+    }
+    if (job.status !== 'failed') return;
+    const code = job.error?.code ?? 'ERROR';
+    if (isTransientFailure(code)) {
+      this.consecutiveFailures++;
+      if (this.consecutiveFailures >= PAUSE_AFTER_FAILURES) this.pause(code);
+    }
+  }
+
+  /** Tek deneme. Sonuç: tamam / iptal / başarısız (hata job.error'da) */
+  private async attemptOnce(job: InternalJob): Promise<'done' | 'cancelled' | 'failed'> {
+    const signal = job.abort.signal;
     const started = Date.now();
     const marks: number[] = [];
     const checkCancelled = () => {
@@ -516,19 +748,24 @@ export class JobsService {
         trackNumber: job.options.extras?.trackNumber ?? null,
       });
       logger.info({ id: job.id, file: file.fileName, size: file.size, timings }, 'İndirme tamamlandı');
+      return 'done';
     } catch (err) {
       if (signal.aborted) {
         await downloaderService.remove(job.id).catch(() => undefined);
         this.update(job, { status: 'cancelled', message: STAGE_MESSAGE.cancelled, progress: job.progress });
-        return;
+        return 'cancelled';
       }
-      logger.warn({ err, id: job.id, url: job.url }, 'İndirme başarısız');
-      this.update(job, { status: 'failed', message: STAGE_MESSAGE.failed, error: errorInfo(err) });
+      const error = errorInfo(err);
+      logger.warn({ err, id: job.id, url: job.url, code: error.code, attempt: job.attempt }, 'İndirme başarısız');
+      this.update(job, { status: 'failed', message: STAGE_MESSAGE.failed, error });
+      return 'failed';
     }
   }
 
   private update(job: InternalJob, patch: Partial<PublicJob>): void {
+    const statusChanged = patch.status !== undefined && patch.status !== job.status;
     Object.assign(job, patch, { updatedAt: new Date().toISOString() });
+    if (statusChanged) this.persist();
     const snapshot = this.toPublic(job);
     this.events.emit(`job:${job.id}`, snapshot);
     if (job.batchId) this.events.emit(`batch:${job.batchId}`, snapshot);

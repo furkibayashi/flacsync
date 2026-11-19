@@ -9,7 +9,9 @@ import { measureLoudness, readTags } from '../utils/audio-tags.js';
 import { writeGenreTag } from '../utils/tag-writer.js';
 import { canonicalGenre, genreService } from './genre.service.js';
 import { ffmpegPath } from '../utils/ffmpeg.js';
+import { readJsonSafely, writeJsonAtomic } from '../utils/json-store.js';
 import { logger } from '../utils/logger.js';
+import { songKey } from './library/song-key.js';
 import type { TrackMetadata } from './metadata/types.js';
 
 /**
@@ -485,17 +487,41 @@ export class LibraryService {
   }
 
   private load(): void {
-    if (!existsSync(this.file)) return;
-    try {
-      const data = JSON.parse(readFileSync(this.file, 'utf8')) as { tracks?: StoredTrack[] };
-      for (const t of data.tracks ?? []) if (t?.id && t.path) this.tracks.set(t.id, t);
-      setTimeout(() => this.measureMissing(), 10_000).unref();
-    } catch (err) {
-      logger.warn({ err, file: this.file }, 'Kütüphane dizini okunamadı, boş başlatılıyor');
+    // Bozuksa kenara alınır ve yedekten okunur (boşuyla ezilmez)
+    const data = readJsonSafely<{ tracks?: StoredTrack[] }>(this.file, (raw) =>
+      raw && typeof raw === 'object' ? (raw as { tracks?: StoredTrack[] }) : null,
+    );
+    if (!data) return;
+    for (const t of data.tracks ?? []) if (t?.id && t.path) this.tracks.set(t.id, t);
+    setTimeout(() => this.measureMissing(), 10_000).unref();
+  }
+
+  private keyCache: Map<string, string> | null = null;
+
+  /**
+   * "sanatçı|başlık" → şarkı kimliği. Arama sonuçlarında / albümlerde "kütüphanende var" göstermek
+   * ve liste senkronunda tekrar indirmemek için. Kütüphane değişince yeniden kurulur.
+   */
+  keyIndex(): Map<string, string> {
+    if (!this.keyCache) {
+      const map = new Map<string, string>();
+      for (const t of this.tracks.values()) map.set(songKey(t.artist, t.title), t.id);
+      this.keyCache = map;
     }
+    return this.keyCache;
+  }
+
+  /** Verilen şarkılardan kütüphanede olanların kimlikleri (aynı sırayla, yoksa null) */
+  match(items: Array<{ artist: string; title: string }>): Array<string | null> {
+    const index = this.keyIndex();
+    return items.map((i) => {
+      const id = index.get(songKey(i.artist, i.title));
+      return id && this.filePath(id) ? id : null;
+    });
   }
 
   private scheduleWrite(): void {
+    this.keyCache = null;
     if (this.writeTimer) clearTimeout(this.writeTimer);
     this.writeTimer = setTimeout(() => {
       this.writeTimer = null;
@@ -505,10 +531,8 @@ export class LibraryService {
   }
 
   private async write(): Promise<void> {
-    const tmp = `${this.file}.tmp`;
     try {
-      await writeFile(tmp, JSON.stringify({ version: 1, tracks: [...this.tracks.values()] }), 'utf8');
-      await rename(tmp, this.file);
+      await writeJsonAtomic(this.file, { version: 1, tracks: [...this.tracks.values()] });
     } catch (err) {
       logger.warn({ err, file: this.file }, 'Kütüphane dizini kaydedilemedi');
     }

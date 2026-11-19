@@ -2,14 +2,41 @@
 // Tek dosyalık yt-dlp.exe her çalıştırmada kendini geçici klasöre açtığı için yavaş başlar
 // (ölçümde 1,36 sn → 0,51 sn). Klasör sürümü kendini güncelleyemediği için güncelleme burada yapılır.
 import { execFile } from 'node:child_process';
-import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import yauzl from 'yauzl';
 
-const LATEST_ZIP = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_win.zip';
 const LATEST_API = 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest';
+/** Sürüme sabitlenmiş adresler: "latest" iki istek arasında değişirse özet tutmaz */
+const releaseFile = (tag: string, name: string) =>
+  `https://github.com/yt-dlp/yt-dlp/releases/download/${encodeURIComponent(tag)}/${name}`;
+const ZIP_NAME = 'yt-dlp_win.zip';
+
+/** yt-dlp'nin kendi yayımladığı SHA2-256SUMS dosyasından zip'in beklenen özeti */
+async function expectedSha256(tag: string): Promise<string> {
+  const res = await fetch(releaseFile(tag, 'SHA2-256SUMS'), { headers: { 'User-Agent': 'FlacSync' } });
+  if (!res.ok) throw new Error(`yt-dlp özet listesi alınamadı (HTTP ${res.status}); güncelleme yapılmadı`);
+  const line = (await res.text())
+    .split(/\r?\n/)
+    .map((l) => l.trim().split(/\s+\*?/))
+    .find(([, name]) => name === ZIP_NAME);
+  const hash = line?.[0]?.toLowerCase();
+  if (!hash || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('yt-dlp özet listesinde zip bulunamadı; güncelleme yapılmadı');
+  return hash;
+}
+
+function sha256File(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    createReadStream(path)
+      .on('data', (d) => hash.update(d))
+      .on('error', reject)
+      .on('end', () => resolve(hash.digest('hex')));
+  });
+}
 
 /** Kullanıcı klasöründeki yt-dlp'yi hazırlar: yoksa ya da uygulama sürümü değiştiyse paketle geleni kopyalar. */
 export function ensureYtDlpDir(bundledDir: string, targetDir: string, appVersion: string): void {
@@ -81,9 +108,16 @@ export async function updateYtDlpDir(targetDir: string, tempDir: string): Promis
   const old = `${targetDir}.old`;
   rmSync(next, { recursive: true, force: true });
 
-  const zip = await fetch(LATEST_ZIP, { headers: { 'User-Agent': 'FlacSync' } });
+  const expected = await expectedSha256(latest);
+  const zip = await fetch(releaseFile(latest, ZIP_NAME), { headers: { 'User-Agent': 'FlacSync' } });
   if (!zip.ok || !zip.body) throw new Error(`yt-dlp indirilemedi (HTTP ${zip.status})`);
   await pipeline(Readable.fromWeb(zip.body as import('node:stream/web').ReadableStream), createWriteStream(zipPath));
+  // Özet tutmayan dosya asla açılıp çalıştırılmaz
+  const actual = await sha256File(zipPath);
+  if (actual !== expected) {
+    rmSync(zipPath, { force: true });
+    throw new Error('İndirilen yt-dlp dosyasının SHA-256 özeti tutmuyor; güncelleme iptal edildi');
+  }
   await extractZip(zipPath, next);
   rmSync(zipPath, { force: true });
 

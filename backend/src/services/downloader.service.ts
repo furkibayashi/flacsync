@@ -210,8 +210,10 @@ export class DownloaderService {
       report('tagging', 0);
       if (format === 'mp3') {
         const tags = { ...buildId3Tags(metadata, source, cover, extras), ...(lyrics ? id3LyricsTags(lyrics) : {}) };
-        const result = NodeID3.write(tags, outputPath);
-        if (result instanceof Error) throw new DownloadError(`ID3 etiketleri yazılamadı: ${result.message}`, { cause: result });
+        // Eşzamansız: senkron yazma büyük dosyalarda sunucuyu bloklayıp ilerleme akışını donduruyordu
+        await NodeID3.Promise.write(tags, outputPath).catch((err: unknown) => {
+          throw new DownloadError(`ID3 etiketleri yazılamadı: ${(err as Error).message}`, { cause: err });
+        });
       }
       report('tagging', 1);
 

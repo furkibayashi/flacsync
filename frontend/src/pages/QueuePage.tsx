@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { FolderOpen, Inbox, ListMusic, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { JobRow } from '../components/JobRow';
+import { QueuePausedBanner } from '../components/QueuePausedBanner';
 import { useI18n } from '../i18n/I18nProvider';
 import { isDesktopApp, openSaveFolder } from '../services/api';
 import { isTerminal, useQueue } from '../state/QueueProvider';
@@ -95,6 +96,7 @@ export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }
 
   return (
     <div className="space-y-8">
+      <QueuePausedBanner />
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{t('queue.title')}</h1>

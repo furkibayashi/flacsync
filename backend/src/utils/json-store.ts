@@ -1,7 +1,58 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
+import { copyFile, open, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { logger } from './logger.js';
+
+/**
+ * Bozuk veri dosyasını kenara alır (".corrupt-<zaman>"), son sağlam yedeği (".bak") dener.
+ * Eskiden bozuk dosyada boş başlanıyor ve ilk kayıtta dosya boşuyla eziliyordu: listeler,
+ * senkron durumu, dinlenme sayıları kaybolurdu.
+ */
+export function readJsonSafely<T>(file: string, validate: (raw: unknown) => T | null): T | null {
+  const tryRead = (path: string): T | null => {
+    if (!existsSync(path)) return null;
+    return validate(JSON.parse(readFileSync(path, 'utf8')));
+  };
+  try {
+    return tryRead(file);
+  } catch (err) {
+    const aside = `${file}.corrupt-${Date.now()}`;
+    try {
+      renameSync(file, aside);
+    } catch {
+      // kenara alınamazsa üzerine yazılmasın diye en azından kopyası
+      try {
+        copyFileSync(file, aside);
+      } catch {
+        /* yoksay */
+      }
+    }
+    logger.warn({ err, file, aside }, 'Veri dosyası bozuk; kenara alındı, yedekten okunuyor');
+    try {
+      return tryRead(`${file}.bak`);
+    } catch (bakErr) {
+      logger.warn({ err: bakErr, file }, 'Yedek de okunamadı, boş başlatılıyor');
+      return null;
+    }
+  }
+}
+
+/**
+ * Yazmadan önce mevcut dosyanın yedeğini alır, geçici dosyaya yazıp diske işler (fsync) ve
+ * yerine koyar: elektrik kesilse de yarım dosya kalmaz, son sağlam sürüm ".bak"ta durur.
+ */
+export async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
+  const tmp = `${file}.tmp`;
+  const handle = await open(tmp, 'w');
+  try {
+    await handle.writeFile(JSON.stringify(value), 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  if (existsSync(file)) await copyFile(file, `${file}.bak`).catch(() => undefined);
+  await rename(tmp, file);
+}
 
 /**
  * Küçük JSON dosyası deposu: açılışta okunur, değişiklikten kısa süre sonra
@@ -19,14 +70,7 @@ export class JsonStore<T> {
     private readonly delayMs = 500,
   ) {
     mkdirSync(dirname(file), { recursive: true });
-    this.value = fallback;
-    if (existsSync(file)) {
-      try {
-        this.value = validate(JSON.parse(readFileSync(file, 'utf8'))) ?? fallback;
-      } catch (err) {
-        logger.warn({ err, file }, 'Veri dosyası okunamadı, boş başlatılıyor');
-      }
-    }
+    this.value = readJsonSafely(file, validate) ?? fallback;
   }
 
   get data(): T {
@@ -62,10 +106,8 @@ export class JsonStore<T> {
   }
 
   private async write(): Promise<void> {
-    const tmp = `${this.file}.tmp`;
     try {
-      await writeFile(tmp, JSON.stringify(this.value), 'utf8');
-      await rename(tmp, this.file);
+      await writeJsonAtomic(this.file, this.value);
     } catch (err) {
       logger.warn({ err, file: this.file }, 'Veri dosyası kaydedilemedi');
     }

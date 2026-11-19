@@ -31,7 +31,12 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
   ses seviyesi, klavye ve medya tuşları. Albüm, keşfet ve arama sonuçlarında 30 sn önizleme; kütüphanede
   tam şarkı.
 - **Keşfet** — Türe ve ülkeye göre en çok dinlenen şarkılar ve albümler.
-- **Kütüphane** — İndirdiğin şarkılar: arama, tür filtresi, albüm görünümü, tek tıkla çal / karıştır.
+- **Kütüphane** — İndirdiğin şarkılar: arama, tür filtresi, albüm ve sanatçı görünümü, sıralama,
+  çoklu seçim (çal, sıraya ekle, listeye ekle, onaylı sil); binlerce şarkıda akıcı. Zaten sende olan
+  şarkılar albüm / arama / keşfet sayfalarında "Kütüphanede" olarak işaretlenir.
+- **Güvenilir indirme sırası** — Sıra uygulama kapanınca kaybolmaz, geçici hatalarda otomatik yeniden
+  dener, art arda hata olursa nedenini söyleyip duraklar; yt-dlp bozulunca kendini doğrulanmış
+  sürümle günceller.
 - **Sanatçı profilleri** — Sanatçı adına tıkla: popüler şarkılar, diskografi, benzer sanatçılar.
 - **Doğru türler** — Tür iTunes ve MusicBrainz'den belirlenir (Deezer'ın her şeye "Pop" demesi yerine);
   Kütüphane'de **Türleri düzelt** eski dosyaları da düzeltir, tür tıklanıp elle de değiştirilebilir.

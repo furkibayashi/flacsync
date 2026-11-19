@@ -172,11 +172,20 @@ export interface DownloadJob {
   file: { name: string; size: number; mimeType: string; hasCover: boolean; lyrics?: 'synced' | 'plain' | null } | null;
   error: { code: string; message: string; status: number } | null;
   timings: JobTimings | null;
+  /** Kaçıncı deneme (geçici hatalarda kendiliğinden yeniden denenir) */
+  attempt?: number;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface QueueState {
+  paused: boolean;
+  reason: string | null;
+  pausedAt: string | null;
+}
+
 export interface QueueSnapshot {
+  state?: QueueState;
   jobs: DownloadJob[];
   batches: Batch[];
   stats: { active: number; queued: number; completed: number; failed: number; cancelled: number };

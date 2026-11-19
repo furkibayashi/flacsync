@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js';
 import type { OutputFormat } from './downloader.service.js';
 import { jobsService } from './jobs.service.js';
 import { libraryService } from './library.service.js';
-import { stripTitleNoise, splitArtists } from './matcher/similarity.js';
+import { songKey } from './library/song-key.js';
 import { metadataService } from './metadata.service.js';
 import { playlistService } from './playlist.service.js';
 
@@ -26,8 +26,15 @@ export interface WatchedPlaylist {
   playlistId: string;
   format: OutputFormat;
   enabled: boolean;
-  /** Daha önce görülen kaynak şarkı linkleri */
+  /** Kütüphaneye girmiş (ya da zaten olan) kaynak şarkı linkleri */
   known: string[];
+  /**
+   * İndirilmekte olanlar. Şarkı kütüphaneye girince "known"a geçer; indirme başarısız olursa
+   * bir sonraki kontrolde yeniden denenir (eskiden sıraya girer girmez "bilinen" sayılıyordu).
+   */
+  pending?: Array<{ url: string; jobId: string }>;
+  /** Kaynak link → başarısız indirme sayısı */
+  failures?: Record<string, number>;
   trackCount: number;
   lastCheckedAt: string | null;
   lastAdded: number;
@@ -35,19 +42,11 @@ export interface WatchedPlaylist {
   addedAt: string;
 }
 
-export type PublicWatched = Omit<WatchedPlaylist, 'known'> & { checking: boolean };
+export type PublicWatched = Omit<WatchedPlaylist, 'known' | 'pending' | 'failures'> & { checking: boolean; pendingCount: number };
 
 const CHECK_INTERVAL_MS = 30 * 60_000;
 const MAX_WATCHED = 50;
-
-const norm = (s: string) =>
-  s
-    .toLocaleLowerCase('en')
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
-const songKey = (artist: string, title: string) => `${norm(splitArtists(artist)[0] ?? artist)}|${norm(stripTitleNoise(title))}`;
+const MAX_TRACK_ATTEMPTS = 3;
 
 function isWatched(v: unknown): v is WatchedPlaylist {
   if (typeof v !== 'object' || v === null) return false;
@@ -67,24 +66,35 @@ export class SyncError extends Error {
 export class SyncService {
   private readonly store: JsonStore<WatchedPlaylist[]>;
   private readonly checking = new Set<string>();
-  /** İndirme işi → senkron kaydı (iş bitip kütüphaneye girince listeye eklenir) */
-  private readonly pendingJobs = new Map<string, string>();
   private timer: NodeJS.Timeout | null = null;
 
   constructor(dataDir = resolve(env.DATA_DIR)) {
     this.store = new JsonStore<WatchedPlaylist[]>(join(dataDir, 'sync.json'), [], (raw) =>
       Array.isArray(raw) ? raw.filter(isWatched) : null,
     );
+    // İndirilen şarkı kütüphaneye girince: listeye ekle, artık "bilinen" say
     libraryService.onAdded((jobId, trackId) => {
-      const watchId = this.pendingJobs.get(jobId);
-      if (!watchId) return;
-      this.pendingJobs.delete(jobId);
-      const w = this.find(watchId);
-      if (w) {
+      for (const w of this.store.data) {
+        const p = w.pending?.find((x) => x.jobId === jobId);
+        if (!p) continue;
+        w.pending = w.pending!.filter((x) => x !== p);
+        if (!w.known.includes(p.url)) w.known.push(p.url);
         try {
           playlistService.add(w.playlistId, [trackId]);
         } catch (err) {
           logger.debug({ err }, 'Senkron: şarkı listeye eklenemedi');
+        }
+        this.store.touch();
+        return;
+      }
+    });
+    // "Yeniden dene" işe yeni kimlik verir: bekleyen kayıt yeni işe bağlanır
+    jobsService.onReplaced((oldId, newId) => {
+      for (const w of this.store.data) {
+        const p = w.pending?.find((x) => x.jobId === oldId);
+        if (p) {
+          p.jobId = newId;
+          this.store.touch();
         }
       }
     });
@@ -99,7 +109,7 @@ export class SyncService {
   }
 
   list(): PublicWatched[] {
-    return this.store.data.map(({ known: _k, ...w }) => ({ ...w, checking: this.checking.has(w.id) }));
+    return this.store.data.map((w) => this.public(w));
   }
 
   /**
@@ -164,17 +174,35 @@ export class SyncService {
       if (lookup.kind !== 'collection') throw new SyncError('NOT_A_PLAYLIST', 'Liste artık açılamıyor');
       const c = lookup.collection;
       const known = new Set(w.known);
-      const fresh = c.tracks.filter((t) => !known.has(t.url));
+      // Hâlâ sırada / inmekte olanlar atlanır; başarısız ya da kaybolmuş işler yeniden indirilir
+      const failures = (w.failures ??= {});
+      const stillPending = (w.pending ?? []).filter((p) => {
+        const job = jobsService.get(p.jobId);
+        const active = job !== null && job.status !== 'failed' && job.status !== 'cancelled';
+        if (!active) {
+          // Hiç bulunamayan şarkı her kontrolde sonsuza dek denenmesin: 3 denemeden sonra bırakılır
+          failures[p.url] = (failures[p.url] ?? 0) + 1;
+          if (failures[p.url]! >= MAX_TRACK_ATTEMPTS) known.add(p.url);
+        }
+        return active;
+      });
+      const pendingUrls = new Set(stillPending.map((p) => p.url));
+      const fresh = c.tracks.filter((t) => !known.has(t.url) && !pendingUrls.has(t.url));
 
       // Kütüphanede zaten olanlar: indirme yok, listeye eklenir
-      const library = new Map(libraryService.entries().map((t) => [songKey(t.artist, t.title), t.id]));
+      const library = libraryService.keyIndex();
       const inLibrary: string[] = [];
+      const alreadyHave: string[] = [];
       const toDownload = fresh.filter((t) => {
         const hit = library.get(songKey(t.artist, t.title));
-        if (hit) inLibrary.push(hit);
+        if (hit) {
+          inLibrary.push(hit);
+          alreadyHave.push(t.url);
+        }
         return !hit;
       });
       if (inLibrary.length) playlistService.add(w.playlistId, inLibrary);
+      const newPending = [...stillPending];
       if (toDownload.length) {
         const batch = jobsService.createBatch({
           name: w.name,
@@ -182,10 +210,12 @@ export class SyncService {
           items: toDownload.map((t) => ({ url: t.url })),
           useFolder: true,
         });
-        for (const jobId of batch.jobIds) this.pendingJobs.set(jobId, w.id);
+        // Toplu işteki iş sırası, verilen şarkı sırasıyla aynıdır
+        batch.jobIds.forEach((jobId, i) => newPending.push({ url: toDownload[i]!.url, jobId }));
       }
 
-      w.known = [...known, ...fresh.map((t) => t.url)];
+      w.known = [...new Set([...known, ...alreadyHave])];
+      w.pending = newPending;
       w.name = c.title;
       w.coverUrl = c.coverUrl ?? w.coverUrl;
       w.trackCount = c.tracks.length;
@@ -218,8 +248,8 @@ export class SyncService {
   }
 
   private public(w: WatchedPlaylist): PublicWatched {
-    const { known: _k, ...rest } = w;
-    return { ...rest, checking: this.checking.has(w.id) };
+    const { known: _k, pending, failures: _f, ...rest } = w;
+    return { ...rest, checking: this.checking.has(w.id), pendingCount: pending?.length ?? 0 };
   }
 }
 

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { env } from '../config/env.js';
+import { readJsonSafely, writeJsonAtomic } from '../utils/json-store.js';
 import { logger } from '../utils/logger.js';
 import type { Platform } from './metadata/types.js';
 
@@ -98,14 +99,10 @@ export class HistoryService {
   }
 
   private load(): void {
-    if (!existsSync(this.file)) return;
-    try {
-      const data = JSON.parse(readFileSync(this.file, 'utf8')) as { entries?: HistoryEntry[] };
-      this.entries = Array.isArray(data.entries) ? data.entries.slice(0, MAX_ENTRIES) : [];
-    } catch (err) {
-      logger.warn({ err, file: this.file }, 'İndirme geçmişi okunamadı, boş başlatılıyor');
-      this.entries = [];
-    }
+    const data = readJsonSafely<{ entries?: HistoryEntry[] }>(this.file, (raw) =>
+      raw && typeof raw === 'object' ? (raw as { entries?: HistoryEntry[] }) : null,
+    );
+    this.entries = Array.isArray(data?.entries) ? data!.entries!.slice(0, MAX_ENTRIES) : [];
   }
 
   private scheduleWrite(): void {
@@ -119,10 +116,8 @@ export class HistoryService {
 
   /** Yarım yazılmış dosya kalmasın diye önce geçici dosyaya yazıp yeniden adlandırır. */
   private async write(): Promise<void> {
-    const tmp = `${this.file}.tmp`;
     try {
-      await writeFile(tmp, JSON.stringify({ version: 1, entries: this.entries }), 'utf8');
-      await rename(tmp, this.file);
+      await writeJsonAtomic(this.file, { version: 1, entries: this.entries });
     } catch (err) {
       logger.warn({ err, file: this.file }, 'İndirme geçmişi kaydedilemedi');
     }

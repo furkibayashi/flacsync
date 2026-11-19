@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { Check, Disc3, Download, FilePenLine, Loader2, Pencil, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration } from '../lib/format';
 import { api } from '../services/api';
@@ -121,6 +121,10 @@ export function LibrarySongRow({
   showAlbum,
   knownGenres,
   onChange,
+  confirmRemove = false,
+  selectable = false,
+  selected = false,
+  onSelect,
 }: {
   track: LibraryTrack;
   index: number;
@@ -132,17 +136,61 @@ export function LibrarySongRow({
   showAlbum: boolean;
   knownGenres: string[];
   onChange: (t: LibraryTrack) => void;
+  /** Silmeden önce ikinci bir tıklama ister (dosya diskten kalkar) */
+  confirmRemove?: boolean;
+  /** Seçim kipi: numara yerine onay kutusu, satıra tıklamak seçer (Shift ile aralık) */
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (range: boolean) => void;
 }) {
   const { t } = useI18n();
   const { current, playing } = usePlayer();
   const [editing, setEditing] = useState(false);
+  const [armed, setArmed] = useState(false);
   const active = current?.id === `lib:${track.id}`;
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 3500);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
   return (
     <li
-      onDoubleClick={onPlay}
-      className={clsx('group flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-raised/60 sm:gap-4 sm:px-3', active && 'bg-raised/70')}
+      onDoubleClick={selectable ? undefined : onPlay}
+      onClick={
+        selectable
+          ? (e) => {
+              if ((e.target as HTMLElement).closest('button, a, input, select, [role="dialog"]')) return;
+              onSelect?.(e.shiftKey);
+            }
+          : undefined
+      }
+      aria-selected={selectable ? selected : undefined}
+      className={clsx(
+        'group flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-raised/60 sm:gap-4 sm:px-3',
+        active && 'bg-raised/70',
+        selectable && 'cursor-pointer select-none',
+        selected && 'bg-amber/10 ring-1 ring-amber/30',
+      )}
     >
-      <span className="w-6 shrink-0 text-right text-sm text-fade tabular-nums">{track.trackNumber ?? index + 1}</span>
+      {selectable ? (
+        <span className="grid w-6 shrink-0 place-items-center">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect?.(e.shiftKey);
+            }}
+            aria-label={track.title}
+            className="size-4 accent-[var(--color-amber)]"
+          />
+        </span>
+      ) : (
+        <span className="w-6 shrink-0 text-right text-sm text-fade tabular-nums">{track.trackNumber ?? index + 1}</span>
+      )}
       <LibraryCover id={track.id} className="size-11 rounded-md" />
       <span className="min-w-0 flex-1">
         <span className={clsx('block truncate font-semibold', active ? 'text-amber' : 'text-paper')}>{track.title}</span>
@@ -192,16 +240,25 @@ export function LibrarySongRow({
         </button>
       )}
       {editing && <TagEditor track={track} onClose={() => setEditing(false)} onSaved={onChange} />}
-      <AddToPlaylist trackIds={[track.id]} side="bottom" className="opacity-60 group-hover:opacity-100" />
+      <AddToPlaylist trackIds={[track.id]} playerTracks={[toPlayerTrack(track)]} side="bottom" className="opacity-60 group-hover:opacity-100" />
       {onRemove ? (
         <button
           type="button"
-          onClick={onRemove}
-          title={removeLabel}
-          aria-label={removeLabel}
-          className="grid size-9 shrink-0 place-items-center rounded-full text-fade opacity-0 transition group-hover:opacity-100 hover:text-danger focus-visible:opacity-100"
+          onClick={() => {
+            if (confirmRemove && !armed) return setArmed(true);
+            setArmed(false);
+            onRemove();
+          }}
+          title={armed ? t('library.confirmRemove') : removeLabel}
+          aria-label={armed ? t('library.confirmRemove') : removeLabel}
+          className={clsx(
+            'grid shrink-0 place-items-center rounded-full transition focus-visible:opacity-100',
+            armed
+              ? 'h-9 bg-danger px-3 text-xs font-bold text-white opacity-100'
+              : 'size-9 text-fade opacity-0 group-hover:opacity-100 hover:text-danger',
+          )}
         >
-          <Trash2 className="size-4" />
+          {armed ? t('library.confirmShort') : <Trash2 className="size-4" />}
         </button>
       ) : (
         <span className="size-9 shrink-0" />
