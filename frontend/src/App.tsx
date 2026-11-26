@@ -1,9 +1,10 @@
 import clsx from 'clsx';
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Downloader } from './components/Downloader';
 import { DesktopBridge } from './components/DesktopBridge';
 import { PlayerBar } from './components/PlayerBar';
 import { MobileNav, Sidebar, Wordmark } from './components/Sidebar';
+import { ConnectionBanner, Toaster } from './components/Toaster';
 import { usePreferredFormat } from './hooks/usePreferredFormat';
 import { useI18n } from './i18n/I18nProvider';
 import { ArtistPage } from './pages/ArtistPage';
@@ -47,6 +48,29 @@ function Shell() {
     [navigate],
   );
 
+  // Sayfa değişince pencere başlığı güncellenir ve odak içeriğe taşınır (ekran okuyucu yeni sayfayı okur)
+  const mainRef = useRef<HTMLElement>(null);
+  const firstRoute = useRef(true);
+  useEffect(() => {
+    const titles: Partial<Record<Route, string>> = {
+      home: t('nav.home'),
+      discover: t('nav.discover'),
+      search: t('nav.search'),
+      library: t('nav.library'),
+      queue: t('nav.queue'),
+      settings: t('nav.settings'),
+    };
+    const name = titles[route];
+    document.title = name ? `${name} · FlacSync` : 'FlacSync';
+  }, [route, t]);
+  useEffect(() => {
+    if (firstRoute.current) {
+      firstRoute.current = false;
+      return;
+    }
+    mainRef.current?.focus({ preventScroll: true });
+  }, [route]);
+
   /** Arama ekranında bir sorgu ya da link aç (ana sayfa, keşfet albümleri) */
   const openInSearch = (query: string) => {
     setSearchRequest({ query, nonce: Date.now() });
@@ -62,16 +86,30 @@ function Shell() {
         style={{ backgroundColor: 'rgb(var(--art))' }}
       />
 
+      <a
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault();
+          mainRef.current?.focus();
+        }}
+        className="sr-only z-[80] rounded-xl bg-amber px-4 py-2 font-bold text-on-accent focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+      >
+        {t('nav.skipToContent')}
+      </a>
       <Sidebar route={route} onNavigate={navigate} />
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <ConnectionBanner />
         <header className="flex items-center justify-between px-5 py-5 md:hidden">
           <Wordmark />
         </header>
 
         <main
+          id="main"
+          ref={mainRef}
+          tabIndex={-1}
           className={clsx(
-            'mx-auto w-full max-w-6xl flex-1 px-5 pt-4 sm:px-8 md:pt-12',
+            'mx-auto w-full max-w-6xl flex-1 px-5 pt-4 outline-none sm:px-8 md:pt-12',
             current ? 'pb-48 md:pb-32' : 'pb-28 md:pb-16',
           )}
         >
@@ -101,6 +139,7 @@ function Shell() {
       <PlayerBar onDownload={(url) => void queue.enqueue(url, format)} />
       {window.flacsync && <DesktopBridge onOpen={openInSearch} />}
       <MobileNav route={route} onNavigate={navigate} />
+      <Toaster />
     </div>
   );
 }

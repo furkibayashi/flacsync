@@ -214,7 +214,7 @@ export function DiscoverPage({ onOpen }: { onOpen: (url: string) => void }) {
           <select
             value={country}
             onChange={(e) => setCountry(e.target.value)}
-            className="rounded-xl bg-panel px-3 py-2 font-semibold text-paper ring-1 ring-rule outline-none focus-visible:ring-amber"
+            className="rounded-xl bg-panel px-3 py-2 font-semibold text-paper ring-1 ring-rule-strong outline-none focus-visible:ring-amber"
           >
             {COUNTRIES.map((c) => (
               <option key={c} value={c}>

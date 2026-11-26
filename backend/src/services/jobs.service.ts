@@ -792,6 +792,7 @@ export class JobsService {
       void libraryService.recordDownload(job.id, metadata, file, {
         folder: job.batchId ? this.batches.get(job.batchId)?.folder ?? null : null,
         trackNumber: job.options.extras?.trackNumber ?? null,
+        source: { videoId: source.videoId, score: source.match.score, strategy: source.match.strategy },
       });
       logger.info({ id: job.id, file: file.fileName, size: file.size, timings }, 'İndirme tamamlandı');
       return 'done';

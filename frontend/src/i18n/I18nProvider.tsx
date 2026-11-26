@@ -30,11 +30,34 @@ function initialLang(): Lang {
   return 'en';
 }
 
-function format(template: string | undefined, vars?: Vars): string {
+const pluralRules = new Map<string, Intl.PluralRules>();
+
+/**
+ * Çoğul biçimler "|" ile ayrılır: "{count} song|{count} songs" (one|other) ya da Rusçada
+ * "{count} песня|{count} песни|{count} песен" (one|few|many). Biçim, `count`a göre dilin
+ * kurallarıyla (Intl.PluralRules) seçilir. Türkçede tek biçim yeterli ("{count} şarkı").
+ */
+export function pickPlural(template: string, lang: string, count: number): string {
+  const forms = template.split('|');
+  if (forms.length === 1) return template;
+  let rules = pluralRules.get(lang);
+  if (!rules) pluralRules.set(lang, (rules = new Intl.PluralRules(lang)));
+  const cat = rules.select(count);
+  if (forms.length === 2) return cat === 'one' ? forms[0]! : forms[1]!;
+  return cat === 'one' ? forms[0]! : cat === 'few' ? forms[1]! : forms[2]!;
+}
+
+function format(template: string | undefined, vars: Vars | undefined, lang: string): string {
   // Eksik anahtar arayüzü çökertmesin (geliştirmede sıcak yükleme sırasında olabilir)
   if (template === undefined) return '';
-  if (!vars) return template;
-  return template.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
+  if (!vars) return template.split('|').pop()!;
+  let text = template;
+  if (template.includes('|')) {
+    // "1.234" gibi biçimlendirilmiş sayılar da olur
+    const n = typeof vars.count === 'number' ? vars.count : Number(String(vars.count ?? '').replace(/[^\d]/g, ''));
+    text = Number.isFinite(n) ? pickPlural(template, lang, n) : template.split('|').pop()!;
+  }
+  return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
@@ -55,7 +78,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<I18nValue>(() => {
     const dict = translations[lang];
-    const t = (key: TranslationKey, vars?: Vars) => format(dict[key], vars);
+    const t = (key: TranslationKey, vars?: Vars) => format(dict[key], vars, lang);
     const tError = (code: string | undefined, fallback: string) => {
       const key = `error.${code}` as TranslationKey;
       if (code && key in dict) return dict[key];

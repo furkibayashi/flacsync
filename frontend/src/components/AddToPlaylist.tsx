@@ -2,7 +2,8 @@ import clsx from 'clsx';
 import { Check, ListEnd, ListPlus, ListStart, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
-import { api } from '../services/api';
+import { api, toUiError } from '../services/api';
+import { toast } from '../state/toast';
 import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
 import { usePlaylists } from '../state/playlists';
 import { MenuItem, Popover } from './Popover';
@@ -22,17 +23,29 @@ export function AddToPlaylist({
   /** Verilirse menüde "Sonra çal" ve "Sıraya ekle" de olur */
   playerTracks?: PlayerTrack[];
 }) {
-  const { t } = useI18n();
+  const { t, tError } = useI18n();
   const player = usePlayer();
   const { playlists, reload } = usePlaylists();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [doneId, setDoneId] = useState<string | null>(null);
 
+  const failed = (err: unknown) => {
+    const e = toUiError(err);
+    toast({ kind: 'error', message: tError(e.code, e.message) });
+  };
+
   const add = async (id: string, close: () => void) => {
-    await api.addToPlaylist(id, trackIds).catch(() => undefined);
+    try {
+      await api.addToPlaylist(id, trackIds);
+    } catch (err) {
+      failed(err);
+      return;
+    }
     setDoneId(id);
     reload();
+    const list = playlists.find((p) => p.id === id);
+    if (list) toast({ kind: 'success', message: t('playlist.added', { count: trackIds.length, name: list.name }) });
     setTimeout(() => {
       setDoneId(null);
       close();
@@ -42,10 +55,16 @@ export function AddToPlaylist({
   const create = async (close: () => void) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    await api.createPlaylist(trimmed, trackIds).catch(() => undefined);
+    try {
+      await api.createPlaylist(trimmed, trackIds);
+    } catch (err) {
+      failed(err);
+      return;
+    }
     setName('');
     setCreating(false);
     reload();
+    toast({ kind: 'success', message: t('playlist.added', { count: trackIds.length, name: trimmed }) });
     close();
   };
 
@@ -61,6 +80,7 @@ export function AddToPlaylist({
               toggle();
             }}
             aria-expanded={open}
+            aria-haspopup="menu"
             title={t('playlist.addTo')}
             aria-label={t('playlist.addTo')}
             className={clsx(
@@ -95,6 +115,7 @@ export function AddToPlaylist({
                 icon={<ListStart className="size-4 text-amber" />}
                 onClick={() => {
                   player.playNext(playerTracks);
+                  toast({ message: t('player.queuedNext', { count: playerTracks.length }) });
                   close();
                 }}
               >
@@ -104,6 +125,7 @@ export function AddToPlaylist({
                 icon={<ListEnd className="size-4 text-amber" />}
                 onClick={() => {
                   player.addToQueue(playerTracks);
+                  toast({ message: t('player.queuedLater', { count: playerTracks.length }) });
                   close();
                 }}
               >
@@ -123,11 +145,12 @@ export function AddToPlaylist({
             >
               <input
                 autoFocus
+                aria-label={t('playlist.namePlaceholder')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('playlist.namePlaceholder')}
                 maxLength={100}
-                className="h-9 min-w-0 flex-1 rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule outline-none focus:ring-amber"
+                className="h-9 min-w-0 flex-1 rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
               />
               <button type="submit" disabled={!name.trim()} className="rounded-lg bg-amber px-3 text-sm font-bold text-on-accent disabled:opacity-40">
                 {t('playlist.create')}

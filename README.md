@@ -51,6 +51,10 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
 - **Masaüstü** — sistem tepsisinde çalmaya devam, mini oynatıcı, kopyalanan linki algılama.
 - **Kütüphane araçları** — sağlık taraması (eksik kapak / söz / tür …), kopya bulucu, klasör düzeni
   şablonu, etiket düzenleyici.
+- **Yanlış kayıt düzeltme** — Eşleşmesi zayıf şarkılar işaretlenir; "Başka kayıt seç" ile YouTube Music'teki
+  adaylardan birini seç ya da bağlantı yapıştır. Etiketler, kapak, sözler ve listeler korunur.
+- **Kendi müzik klasörlerin** — İndirme klasörünü değiştir, var olan klasörleri kütüphaneye ekle;
+  isteğe bağlı ReplayGain etiketi ve şarkının yanına .lrc söz dosyası.
 - **Ayarlar** — 6 renk teması ve renkten bağımsız 6 tasarım (Klasik, Yumuşak, Sıkı, Keskin, Kaset, Cam),
   dil, varsayılan format ve ses.
 - **Uygulama içi güncelleme** — Yeni sürüm çıkınca uygulama haber verir; tek tıkla indirip kurar
@@ -206,6 +210,10 @@ Music, Deezer or YouTube Music link — or just a song name — and saves it as 
   decrypts DRM-protected streams.
 - **Player, Discover, Library and artist profiles**, synced LRC lyrics embedded into the files, six
   themes, in-app updates, and Amazon Music album links.
+- **Fix wrong matches**: weak matches are flagged; pick another YouTube Music recording (or paste a link)
+  and the file is rebuilt in place with its tags, cover, lyrics and playlists kept.
+- **Your own folders**: change the download folder, add existing music folders, optionally write
+  ReplayGain tags and `.lrc` lyric files next to songs.
 - **Six languages**: Turkish, English, German, Spanish, French, Russian.
 
 Download the installer (`FlacSync-Setup-x.y.z.exe`) or the portable exe from [Releases](../../releases).

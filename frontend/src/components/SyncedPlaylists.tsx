@@ -84,7 +84,7 @@ export function SyncedPlaylists({ onOpenPlaylist }: { onOpenPlaylist: (playlistI
               onChange={(e) => setUrl(e.target.value)}
               placeholder={t('sync.placeholder')}
               aria-label={t('sync.placeholder')}
-              className="h-11 w-full rounded-xl bg-night pr-3 pl-10 text-paper ring-1 ring-rule outline-none placeholder:text-fade focus:ring-amber"
+              className="h-11 w-full rounded-xl bg-night pr-3 pl-10 text-paper ring-1 ring-rule-strong outline-none placeholder:text-fade focus:ring-amber"
             />
           </label>
           <button

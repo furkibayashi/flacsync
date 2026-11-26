@@ -18,12 +18,16 @@ const BLOCKED: Array<[string, RegExp]> = [
   ['DELETE', /^\/api\/library\/tracks\//],
   ['PATCH', /^\/api\/library\/tracks\//],
   ['PUT', /^\/api\/library\/tracks\//],
-  ['POST', /^\/api\/library\/(organize\/apply|health\/fix|genres\/fix|tracks\/[^/]+\/(tags|lyrics))/],
+  ['POST', /^\/api\/library\/(organize\/apply|health\/fix|genres\/fix|tracks\/[^/]+\/(tags|lyrics|rematch|match-ok))/],
   ['DELETE', /^\/api\/(history|playlists|sync|follows)(\/|$)/],
   // Listeyi boşaltma / senkron ayarını değiştirme, dışa aktarma (bilgisayara dosya yazar)
   ['PATCH', /^\/api\/(playlists|sync)(\/|$)/],
   ['PUT', /^\/api\/(playlists|sync)(\/|$)/],
   ['POST', /^\/api\/playlists\/[^/]+\/export/],
+  // Kütüphane klasörleri ve tercihleri (bilgisayardaki dosya sistemine dokunur)
+  ['POST', /^\/api\/library\/folders/],
+  ['DELETE', /^\/api\/library\/folders/],
+  ['PATCH', /^\/api\/prefs/],
   // "Yeniden dene" listesini silme
   ['DELETE', /^\/api\/queue\/finished/],
 ];

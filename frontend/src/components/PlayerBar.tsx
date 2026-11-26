@@ -28,6 +28,7 @@ import { LyricsPanel } from './LyricsPanel';
 import { NowPlaying } from './NowPlaying';
 import { SleepTimerButton } from './SleepTimer';
 import { usePlayer, usePlayerProgress } from '../state/PlayerProvider';
+import { toast } from '../state/toast';
 
 const clock = (s: number) => {
   if (!Number.isFinite(s) || s < 0) return '0:00';
@@ -43,6 +44,7 @@ function Slider({
   label,
   className,
   step = 'any',
+  valueText,
 }: {
   value: number;
   max: number;
@@ -50,6 +52,8 @@ function Slider({
   label: string;
   className?: string;
   step?: number | 'any';
+  /** Ekran okuyucunun okuyacağı değer; yoksa 0-1 aralığında yüzde */
+  valueText?: string;
 }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
@@ -61,6 +65,7 @@ function Slider({
       value={Math.min(value, max || 1)}
       onChange={(e) => onChange(Number(e.target.value))}
       aria-label={label}
+      aria-valuetext={valueText ?? (max === 1 ? `${Math.round(value * 100)}%` : undefined)}
       className={clsx('fs-range', className)}
       style={{ '--fill': `${pct}%` } as CSSProperties}
     />
@@ -85,6 +90,7 @@ export function SeekBar() {
         value={Math.min(shown, duration || 1)}
         disabled={!duration}
         aria-label={t('player.seek')}
+        aria-valuetext={`${clock(shown)} / ${clock(duration)}`}
         onChange={(e) => setDrag(Number(e.target.value))}
         onPointerUp={() => {
           if (drag !== null) seek(drag);
@@ -111,7 +117,7 @@ function QueuePopover({ onClose }: { onClose: () => void }) {
     const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => !e.defaultPrevented && e.key === 'Escape' && onClose();
     window.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
     // Yalnızca liste kaydırılır (scrollIntoView sayfayı da kaydırabiliyor)
@@ -330,7 +336,23 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
               className="w-16 lg:w-24"
             />
           </div>
-          <button type="button" onClick={p.close} title={t('player.close')} aria-label={t('player.close')} className={iconBtn()}>
+          <button
+            type="button"
+            onClick={() => {
+              // Kapatmak tüm çalma sırasını siler: birkaç saniye geri alınabilir
+              const saved = { queue: p.queue, index: p.index };
+              p.close();
+              if (saved.queue.length > 1) {
+                toast({
+                  message: t('player.closed', { count: saved.queue.length }),
+                  action: { label: t('action.undo'), run: () => p.playList(saved.queue, Math.max(0, saved.index)) },
+                });
+              }
+            }}
+            title={t('player.close')}
+            aria-label={t('player.close')}
+            className={iconBtn()}
+          >
             <X className="size-4" />
           </button>
         </div>

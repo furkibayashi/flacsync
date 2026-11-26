@@ -1,17 +1,20 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { copyFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, join, parse, relative, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { env } from '../config/env.js';
 import PQueue from 'p-queue';
 import { measureLoudness, readTags } from '../utils/audio-tags.js';
-import { writeGenreTag } from '../utils/tag-writer.js';
+import { withFileLock, writeGenreTag } from '../utils/tag-writer.js';
 import { canonicalGenre, genreService } from './genre.service.js';
 import { ffmpegPath } from '../utils/ffmpeg.js';
 import { readJsonSafely, writeJsonAtomic } from '../utils/json-store.js';
 import { logger } from '../utils/logger.js';
 import { songKey } from './library/song-key.js';
+import { readEmbeddedLyrics } from './lyrics/tagger.js';
+import { prefsService } from './prefs.service.js';
+import { loudnessFromReplayGain, lrcPath, writeLrcSidecar, writeReplayGain } from '../utils/sidecars.js';
 import type { TrackMetadata } from './metadata/types.js';
 
 /**
@@ -46,11 +49,45 @@ export interface LibraryTrack {
   loudness?: number | null;
   /** Kütüphane klasörüne göre yol (arayüzde gösterilir) */
   relativePath: string;
+  /** Sesin geldiği YouTube kaydı ve eşleşme güveni (eski / elle eklenen dosyalarda bilinmeyebilir) */
+  source?: TrackSource | null;
+}
+
+export interface TrackSource {
+  videoId: string;
+  /** 0-1; bilinmiyorsa null */
+  score: number | null;
+  strategy?: string | null;
+  /** Kullanıcı "doğru" dedi ya da kaydı kendisi seçti */
+  reviewed?: boolean;
+}
+
+/** Bu güvenin altındaki eşleşmeler (ISRC ile bulunanlar hariç) kontrol için işaretlenir */
+export const REVIEW_SCORE = 0.9;
+
+export function needsReview(source: TrackSource | null | undefined): boolean {
+  return Boolean(source && !source.reviewed && source.strategy !== 'isrc' && source.score !== null && source.score < REVIEW_SCORE);
+}
+
+/** Dosyanın yorum etiketinden kaynak: "Source: YouTube Music <videoId> (…)" */
+export function sourceFromComment(comment: string | null | undefined): TrackSource | null {
+  const m = /Source:\s*YouTube(?: Music)?\s+([A-Za-z0-9_-]{11})\b/.exec(comment ?? '');
+  return m ? { videoId: m[1]!, score: null } : null;
 }
 
 interface StoredTrack extends LibraryTrack {
   path: string;
   mtimeMs: number;
+  /** ReplayGain etiketi dosyada var (yazıldı ya da zaten vardı) */
+  rgWritten?: boolean;
+}
+
+export interface ScanStatus {
+  running: boolean;
+  /** Taranan / bulunan dosya */
+  done: number;
+  total: number;
+  added: number;
 }
 
 export interface GenreFixStatus {
@@ -69,16 +106,39 @@ export interface LibraryListing {
   genres: { name: string; count: number }[];
   totalBytes: number;
   dir: string;
+  /** Eklenen başka müzik klasörleri */
+  folders: string[];
+  scan: ScanStatus;
 }
+
+/** Klasör eklemede hata (geçersiz yol, iç içe klasör …) */
+export class LibraryFolderError extends Error {
+  readonly statusCode = 400;
+  constructor(
+    readonly code: 'INVALID_FOLDER' | 'FOLDER_EXISTS',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LibraryFolderError';
+  }
+}
+
+export const isInside = (root: string, path: string) => {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+};
 
 interface PendingMeta {
   metadata: TrackMetadata;
   trackNumber: number | null;
+  source?: TrackSource | null;
   at: number;
 }
 
 const AUDIO_EXT = new Set(['.mp3', '.flac']);
 const MAX_SCAN_DEPTH = 4;
+/** Eklenen müzik klasörleri genelde Sanatçı/Albüm/CD1 gibi daha derindir */
+const MAX_EXTRA_DEPTH = 8;
 const MAX_TRACKS = 20_000;
 const WRITE_DELAY_MS = 800;
 const PENDING_TTL_MS = 6 * 60 * 60_000;
@@ -134,6 +194,7 @@ export class LibraryService {
         if (current && existsSync(current.path)) {
           current.loudness = await measureLoudness(current.path);
           this.scheduleWrite();
+          if (prefsService.get().replayGain) await this.writeRg(current);
         }
         this.loudPending.delete(t.id);
       });
@@ -150,6 +211,7 @@ export class LibraryService {
     this.file = join(dataDir, 'library.json');
     this.coverDir = join(dataDir, 'covers');
     this.load();
+    prefsService.onChange((next, prev) => this.applyPrefs(next, prev));
   }
 
   list(): LibraryListing {
@@ -163,10 +225,12 @@ export class LibraryService {
       if (t.genre) genreCount.set(t.genre, (genreCount.get(t.genre) ?? 0) + 1);
     }
     return {
-      tracks: tracks.map(({ path: _p, mtimeMs: _m, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null, loudness: pub.loudness ?? null })),
+      tracks: tracks.map(({ path: _p, mtimeMs: _m, rgWritten: _r, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null, loudness: pub.loudness ?? null })),
       genres: [...genreCount.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
       totalBytes,
       dir: this.dir,
+      folders: prefsService.get().folders,
+      scan: { ...this.scanStatus },
     };
   }
 
@@ -222,9 +286,9 @@ export class LibraryService {
     jobId: string,
     metadata: TrackMetadata,
     file: { path: string; fileName: string },
-    options: { folder?: string | null; trackNumber?: number | null } = {},
+    options: { folder?: string | null; trackNumber?: number | null; source?: TrackSource | null } = {},
   ): Promise<void> {
-    const pending: PendingMeta = { metadata, trackNumber: options.trackNumber ?? null, at: Date.now() };
+    const pending: PendingMeta = { metadata, trackNumber: options.trackNumber ?? null, source: options.source ?? null, at: Date.now() };
     if (!this.copyCompleted) {
       this.prunePending();
       this.pending.set(jobId, pending);
@@ -236,6 +300,7 @@ export class LibraryService {
       const target = uniquePath(dir, file.fileName);
       await copyFile(file.path, target);
       await this.addFile(target, pending);
+      void this.sidecarFor(target);
       this.emitAdded(jobId, trackId(target));
     } catch (err) {
       logger.warn({ err, jobId }, 'Şarkı kütüphaneye eklenemedi');
@@ -248,6 +313,7 @@ export class LibraryService {
     this.pending.delete(jobId);
     try {
       await this.addFile(path, pending);
+      void this.sidecarFor(path);
       this.emitAdded(jobId, trackId(path));
     } catch (err) {
       logger.warn({ err, jobId, path }, 'Kaydedilen dosya kütüphaneye eklenemedi');
@@ -364,12 +430,67 @@ export class LibraryService {
     return this.track(id);
   }
 
+  /**
+   * Şarkının dosyasını yenisiyle değiştirir (yanlış kayıt düzeltmesi). Aynı yol ve kimlik korunur,
+   * böylece çalma listeleri ve dinlenme sayısı bozulmaz. Eski dosya önce Geri Dönüşüm Kutusu'na gider.
+   */
+  async replaceFile(id: string, newFile: string, source: TrackSource): Promise<LibraryTrack | null> {
+    const t = this.tracks.get(id);
+    if (!t) return null;
+    const target = t.path;
+    const staged = `${target}.flacsync-new`;
+    const old = `${target}.flacsync-old`;
+    await copyFile(newFile, staged);
+    try {
+      await withFileLock(target, async () => {
+        // Önce eski dosya kenara alınır, yeni dosya yerine konur; ancak ikisi de başarılıysa
+        // eskisi çöpe gider. Arada bir şey başarısız olursa eski dosya geri konur.
+        await rename(target, old);
+        try {
+          await rename(staged, target);
+        } catch (err) {
+          await rename(old, target).catch(() => undefined);
+          throw err;
+        }
+      });
+    } catch (err) {
+      await rm(staged, { force: true }).catch(() => undefined);
+      throw err;
+    }
+    try {
+      if (this.trashHandler) await this.trashHandler(old);
+      else await rm(old, { force: true });
+    } catch (err) {
+      logger.warn({ err, file: old }, 'Eski dosya çöpe gönderilemedi; yanında bırakıldı');
+    }
+    this.invalidateCover(id);
+    await this.reread(id);
+    // Yeni ses: yükseklik yeniden ölçülür
+    const updated = this.tracks.get(id);
+    if (updated) {
+      updated.loudness = undefined;
+      updated.rgWritten = false;
+      updated.source = source;
+      this.scheduleWrite();
+    }
+    return this.track(id);
+  }
+
+  /** Eşleşmeyi onaylar ya da yeni kaynağı kaydeder */
+  setSource(id: string, source: TrackSource): LibraryTrack | null {
+    const t = this.tracks.get(id);
+    if (!t) return null;
+    t.source = source;
+    this.scheduleWrite();
+    return this.track(id);
+  }
+
   /** Dosya taşındı (klasör düzeni): kimlik korunur, yol güncellenir */
   relocate(id: string, newPath: string): void {
     const t = this.tracks.get(id);
     if (!t) return;
     t.path = resolve(newPath);
-    t.relativePath = relativeTo(this.dir, newPath);
+    t.relativePath = this.relativePath(newPath);
     this.scheduleWrite();
   }
 
@@ -386,6 +507,9 @@ export class LibraryService {
     if (!t) return { trashed: false };
     if (this.trashHandler) await this.trashHandler(t.path);
     else await rm(t.path, { force: true });
+    // Yanındaki .lrc de gider (yalnızca bizim yazdığımız ya da aynı adlı olan)
+    const lrc = lrcPath(t.path);
+    if (existsSync(lrc)) await (this.trashHandler ? this.trashHandler(lrc) : rm(lrc, { force: true })).catch(() => undefined);
     this.tracks.delete(id);
     this.scheduleWrite();
     return { trashed: Boolean(this.trashHandler) };
@@ -399,10 +523,116 @@ export class LibraryService {
 
   /** Klasörü tarar: yeni dosyaları ekler, silinmiş olanları çıkarır. */
   rescan(): Promise<{ added: number; removed: number }> {
-    this.scanning ??= this.doRescan().finally(() => {
+    if (this.scanning) {
+      // Sürmekte olan tarama eski klasör listesini kullanıyor: bittiğinde bir kez daha taranır
+      this.rescanAgain = true;
+      return this.scanning;
+    }
+    this.scanning = this.doRescan().finally(() => {
       this.scanning = null;
+      this.scanStatus.running = false;
+      if (this.rescanAgain) {
+        this.rescanAgain = false;
+        void this.rescan();
+      }
     });
     return this.scanning;
+  }
+
+  private rescanAgain = false;
+
+  private scanStatus: ScanStatus = { running: false, done: 0, total: 0, added: 0 };
+
+  get scan(): ScanStatus {
+    return { ...this.scanStatus };
+  }
+
+  /** Kütüphanenin kökleri: indirme klasörü + eklenen klasörler */
+  roots(): string[] {
+    return [this.dir, ...prefsService.get().folders];
+  }
+
+  /**
+   * Var olan bir müzik klasörünü kütüphaneye ekler; arka planda taranır. Dosyalar taşınmaz,
+   * kopyalanmaz; yalnızca dizine alınır.
+   */
+  addFolder(input: string): string[] {
+    const folder = resolve(input.trim());
+    if (!isAbsolute(input.trim())) throw new LibraryFolderError('INVALID_FOLDER', 'Klasör yolu tam olmalı');
+    let isDir = false;
+    try {
+      isDir = statSync(folder).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) throw new LibraryFolderError('INVALID_FOLDER', 'Klasör bulunamadı');
+    // Kök sürücünün tamamı ya da zaten kapsanan / kapsayan bir klasör eklenmez
+    if (parse(folder).root === folder) {
+      throw new LibraryFolderError('INVALID_FOLDER', 'Sürücünün tamamı eklenemez; bir müzik klasörü seçin');
+    }
+    for (const root of this.roots()) {
+      if (isInside(root, folder)) {
+        throw new LibraryFolderError('FOLDER_EXISTS', 'Bu klasör zaten kütüphanede (ya da kütüphanedeki bir klasörün içinde)');
+      }
+    }
+    // Yeni klasörün içinde kalan eklenmiş klasörler artık gereksiz: üst klasör hepsini kapsar
+    const folders = [...prefsService.get().folders.filter((f) => !isInside(folder, f)), folder];
+    prefsService.update({ folders });
+    void this.rescan();
+    return folders;
+  }
+
+  /** Klasörü kütüphaneden çıkarır (dosyalara dokunulmaz) */
+  removeFolder(input: string): string[] {
+    const folder = resolve(input);
+    const folders = prefsService.get().folders.filter((f) => resolve(f).toLowerCase() !== folder.toLowerCase());
+    prefsService.update({ folders });
+    let removed = 0;
+    for (const [id, t] of this.tracks) {
+      if (isInside(folder, t.path) && !this.roots().some((r) => isInside(r, t.path))) {
+        this.tracks.delete(id);
+        removed++;
+      }
+    }
+    if (removed) this.scheduleWrite();
+    return folders;
+  }
+
+  /** Tercih açıldı: eksik ReplayGain etiketlerini / .lrc dosyalarını arka planda yazar */
+  applyPrefs(next: { lrcSidecar: boolean; replayGain: boolean }, prev: { lrcSidecar: boolean; replayGain: boolean }): void {
+    if (next.replayGain && !prev.replayGain) {
+      for (const t of this.tracks.values()) if (typeof t.loudness === 'number' && !t.rgWritten) void this.loudQueue.add(() => this.writeRg(t));
+    }
+    if (next.lrcSidecar && !prev.lrcSidecar) {
+      for (const t of this.tracks.values()) if (!existsSync(lrcPath(t.path))) void this.loudQueue.add(() => this.sidecarFor(t.path));
+    }
+  }
+
+  private async writeRg(t: StoredTrack): Promise<void> {
+    if (typeof t.loudness !== 'number' || t.rgWritten || !existsSync(t.path)) return;
+    // Eklenen klasörlerdeki dosyalar kullanıcınındır: yeniden yazılmaz
+    if (!isInside(this.dir, t.path)) return;
+    try {
+      await writeReplayGain(t.path, t.loudness);
+      const s = await stat(t.path);
+      t.size = s.size;
+      t.mtimeMs = s.mtimeMs;
+      t.rgWritten = true;
+      this.scheduleWrite();
+    } catch (err) {
+      logger.debug({ err, file: t.path }, 'ReplayGain etiketi yazılamadı');
+    }
+  }
+
+  /** Tercih açıksa dosyanın gömülü sözlerinden yanına .lrc yazar */
+  private async sidecarFor(file: string): Promise<void> {
+    if (!prefsService.get().lrcSidecar || !existsSync(file) || !isInside(this.dir, file)) return;
+    try {
+      const lyrics = await readEmbeddedLyrics(file);
+      if (lyrics) await writeLrcSidecar(file, lyrics);
+    } catch (err) {
+      logger.debug({ err, file }, '.lrc yazılamadı');
+    }
   }
 
   async flush(): Promise<void> {
@@ -417,19 +647,41 @@ export class LibraryService {
   // -------------------------------------------------------------------------
 
   private async doRescan(): Promise<{ added: number; removed: number }> {
+    this.scanStatus = { running: true, done: 0, total: 0, added: 0 };
+    // Takılı olmayan bir sürücüdeki (USB, ağ) klasörün şarkıları silinmez: sürücü geri gelince
+    // dinlenme sayıları ve diğer bilgiler yerinde olsun. Yalnızca erişilebilen köklerde temizlik yapılır.
+    const roots = this.roots();
+    const reachable = roots.filter((r) => existsSync(r));
+    const unreachable = roots.filter((r) => !reachable.includes(r));
     let removed = 0;
     for (const [id, t] of this.tracks) {
-      if (!existsSync(t.path)) {
-        this.tracks.delete(id);
-        removed++;
-      }
+      if (existsSync(t.path)) continue;
+      if (unreachable.some((r) => isInside(r, t.path)) && !reachable.some((r) => isInside(r, t.path))) continue;
+      this.tracks.delete(id);
+      removed++;
     }
-    const files: string[] = [];
-    await walk(this.dir, 0, files);
+    const found: string[] = [];
+    await walk(this.dir, 0, found, MAX_SCAN_DEPTH);
+    for (const folder of prefsService.get().folders) {
+      if (existsSync(folder)) await walk(folder, 0, found, MAX_EXTRA_DEPTH);
+      this.scanStatus.total = found.length;
+    }
+    // Üst klasör eklendiyse indirme klasörü iki kez gezilmiş olabilir
+    const seen = new Set<string>();
+    const files = found.filter((f) => {
+      const key = resolve(f).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     const byPath = new Map([...this.tracks.values()].map((t) => [t.path.toLowerCase(), t.id]));
     let added = 0;
+    this.scanStatus = { running: true, done: 0, total: files.length, added: 0 };
     for (const file of files) {
+      this.scanStatus.done++;
       if (this.tracks.size >= MAX_TRACKS) break;
+      // Tarama sürerken klasör kütüphaneden çıkarıldıysa o dosyalar eklenmez
+      if (!this.roots().some((r) => isInside(r, file))) continue;
       const id = byPath.get(resolve(file).toLowerCase()) ?? trackId(file);
       const existing = this.tracks.get(id);
       if (existing) {
@@ -438,11 +690,15 @@ export class LibraryService {
       }
       try {
         await this.addFile(file, undefined, existing?.addedAt, id);
-        if (!existing) added++;
+        if (!existing) {
+          added++;
+          this.scanStatus.added = added;
+        }
       } catch (err) {
         logger.debug({ err, file }, 'Dosya okunamadı');
       }
     }
+    this.scanStatus = { ...this.scanStatus, running: false };
     if (added || removed) this.scheduleWrite();
     return { added, removed };
   }
@@ -476,11 +732,29 @@ export class LibraryService {
       addedAt: addedAt ?? this.tracks.get(id)?.addedAt ?? new Date().toISOString(),
       playCount: this.tracks.get(id)?.playCount ?? 0,
       lastPlayedAt: this.tracks.get(id)?.lastPlayedAt ?? null,
-      relativePath: relativeTo(this.dir, path),
+      relativePath: this.relativePath(path),
+      source: pending?.source ?? this.tracks.get(id)?.source ?? sourceFromComment(first(tags, 'comment', 'description')),
     };
+    // Ölçülen yükseklik, etiket yeniden okununca kaybolmasın; dosyada ReplayGain varsa ölçmeye gerek yok
+    const prev = this.tracks.get(id);
+    const tagged = read ? loudnessFromReplayGain(first(tags, 'replaygain_track_gain')) : null;
+    if (prev?.loudness !== undefined) {
+      track.loudness = prev.loudness;
+      track.rgWritten = prev.rgWritten || tagged !== null;
+    } else if (tagged !== null) {
+      track.loudness = tagged;
+      track.rgWritten = true;
+    }
     this.tracks.set(id, track);
     this.scheduleWrite();
     setTimeout(() => this.measureMissing(), 2000).unref();
+  }
+
+  /** Arayüzde gösterilen yol: indirme klasörüne göre; eklenen klasörlerde "KlasörAdı/…" */
+  private relativePath(path: string): string {
+    if (isInside(this.dir, path)) return relativeTo(this.dir, path);
+    const root = prefsService.get().folders.find((f) => isInside(f, path));
+    return root ? `${basename(root)}/${relativeTo(root, path)}` : basename(path);
   }
 
   private prunePending(): void {
@@ -569,13 +843,14 @@ function uniquePath(dir: string, fileName: string): string {
   return candidate;
 }
 
-async function walk(dir: string, depth: number, out: string[]): Promise<void> {
-  if (depth > MAX_SCAN_DEPTH || out.length >= MAX_TRACKS) return;
+async function walk(dir: string, depth: number, out: string[], maxDepth: number): Promise<void> {
+  if (depth > maxDepth || out.length >= MAX_TRACKS) return;
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
   for (const e of entries) {
     const full = join(dir, e.name);
-    if (e.isDirectory()) await walk(full, depth + 1, out);
-    else if (e.isFile() && AUDIO_EXT.has(extname(e.name).toLowerCase())) out.push(full);
+    // Gizli ve sistem klasörleri ($RECYCLE.BIN, System Volume Information, .git …) atlanır
+    if (e.isDirectory() && !/^[.$]|^System Volume Information$/i.test(e.name)) await walk(full, depth + 1, out, maxDepth);
+    else if (e.isFile() && !e.name.startsWith('.') && AUDIO_EXT.has(extname(e.name).toLowerCase())) out.push(full);
   }
 }
 

@@ -8,14 +8,17 @@
   --color-rule: #383349;
   --color-paper: #efeaf6;
   --color-dust: #a69fb8;
-  --color-fade: #7a7390;
+  --color-fade: #928ca4;
   --color-amber: #f2b544;
   --color-amber-hi: #ffc95e;
   --color-danger: #f07167;
   /* Vurgu (amber) zeminli düğmelerdeki yazı */
   --color-on-accent: #17151f;
-  --color-flac: #8c7cf0;
+  --color-flac: #8f80f0;
   --color-ok: #6fd39a;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #6d687b;
+  --color-on-danger: #000000;
   --color-sidebar: #1b1925;
 
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
@@ -48,9 +51,12 @@
   --color-rule: #29292f;
   --color-paper: #f2f2f4;
   --color-dust: #a2a2ab;
-  --color-fade: #6c6c75;
+  --color-fade: #818188;
   --color-sidebar: #050506;
   --art: 90 90 110;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #5f5f64;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="ocean"] {
@@ -60,13 +66,16 @@
   --color-rule: #274050;
   --color-paper: #e4f0f5;
   --color-dust: #95b1bf;
-  --color-fade: #678593;
+  --color-fade: #7c96a2;
   --color-amber: #4fd1c5;
   --color-amber-hi: #7ee3d9;
   --color-on-accent: #04201f;
   --color-flac: #7aa2ff;
   --color-sidebar: #0e1c26;
   --art: 60 140 170;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #586e7b;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="sakura"] {
@@ -76,13 +85,16 @@
   --color-rule: #47323c;
   --color-paper: #f8e9ef;
   --color-dust: #c6a4b2;
-  --color-fade: #92707e;
+  --color-fade: #a38793;
   --color-amber: #ff8fb1;
   --color-amber-hi: #ffb1c8;
   --color-on-accent: #2a0e19;
   --color-flac: #b9a0ff;
   --color-sidebar: #21161b;
   --art: 200 110 150;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #79656e;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="forest"] {
@@ -92,13 +104,16 @@
   --color-rule: #2e4236;
   --color-paper: #e7f2e9;
   --color-dust: #a1baa7;
-  --color-fade: #718878;
+  --color-fade: #85998b;
   --color-amber: #9bd36a;
   --color-amber-hi: #b6e68b;
   --color-on-accent: #122009;
   --color-flac: #79c3df;
   --color-sidebar: #131d17;
   --art: 90 150 100;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #5e7065;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="light"] {
@@ -109,15 +124,18 @@
   --color-rule: #d9d1c4;
   --color-paper: #1d1a22;
   --color-dust: #5b5466;
-  --color-fade: #8a8394;
-  --color-amber: #c27400;
-  --color-amber-hi: #db8600;
+  --color-fade: #696470;
+  --color-amber: #935800;
+  --color-amber-hi: #7e4c00;
   --color-on-accent: #ffffff;
-  --color-danger: #c8443a;
-  --color-flac: #6a58d6;
-  --color-ok: #23a061;
+  --color-danger: #b43d34;
+  --color-flac: #6554cb;
+  --color-ok: #1a7547;
   --color-sidebar: #eee9e1;
   --art: 214 170 120;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #908a85;
+  --color-on-danger: #ffffff;
 }
 
 :root[data-theme="pop"] {
@@ -127,13 +145,16 @@
   --color-rule: #4a3266;
   --color-paper: #fbeefe;
   --color-dust: #c9a9dc;
-  --color-fade: #8f72a3;
+  --color-fade: #a087b1;
   --color-amber: #ff5fd2;
   --color-amber-hi: #ff8ee0;
   --color-on-accent: #2b0623;
   --color-flac: #7ed6ff;
   --color-sidebar: #1e122c;
   --art: 220 90 200;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #76618c;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="rock"] {
@@ -143,13 +164,16 @@
   --color-rule: #443232;
   --color-paper: #f3e9e6;
   --color-dust: #b9a19c;
-  --color-fade: #85706b;
-  --color-amber: #e63c2e;
-  --color-amber-hi: #ff6656;
-  --color-on-accent: #ffffff;
+  --color-fade: #9a8884;
+  --color-amber: #eb5f54;
+  --color-amber-hi: #ee756c;
+  --color-on-accent: #000000;
   --color-flac: #e0b04a;
   --color-sidebar: #1a1414;
   --art: 170 50 40;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #736363;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="metal"] {
@@ -159,13 +183,16 @@
   --color-rule: #33373d;
   --color-paper: #e6e8ec;
   --color-dust: #9aa0a8;
-  --color-fade: #686d75;
+  --color-fade: #868a91;
   --color-amber: #c9ced6;
   --color-amber-hi: #eef1f5;
   --color-on-accent: #0b0c0e;
-  --color-flac: #d13030;
+  --color-flac: #dd6464;
   --color-sidebar: #0e1012;
   --art: 110 115 125;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #62656b;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="jazz"] {
@@ -175,13 +202,16 @@
   --color-rule: #343d63;
   --color-paper: #f2ead8;
   --color-dust: #b3aa95;
-  --color-fade: #7f7967;
+  --color-fade: #979284;
   --color-amber: #d9a441;
   --color-amber-hi: #efc26a;
   --color-on-accent: #1a1204;
   --color-flac: #8fb3ff;
   --color-sidebar: #121830;
   --art: 180 140 70;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #656a81;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="hiphop"] {
@@ -191,13 +221,16 @@
   --color-rule: #3d3935;
   --color-paper: #f5f0e6;
   --color-dust: #b5ada0;
-  --color-fade: #827a6e;
+  --color-fade: #958e84;
   --color-amber: #ffc400;
   --color-amber-hi: #ffd54d;
   --color-on-accent: #1a1400;
   --color-flac: #4ad6a0;
   --color-sidebar: #161513;
   --art: 200 160 40;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #6b6761;
+  --color-on-danger: #000000;
 }
 
 :root[data-theme="synthwave"] {
@@ -207,13 +240,16 @@
   --color-rule: #41246f;
   --color-paper: #f6ecff;
   --color-dust: #b9a3d9;
-  --color-fade: #8270a3;
+  --color-fade: #9283af;
   --color-amber: #2ee6ff;
   --color-amber-hi: #7df0ff;
   --color-on-accent: #05202a;
   --color-flac: #ff4fb4;
   --color-sidebar: #160c2e;
   --art: 190 60 220;
+  /* WCAG AA: kontrast denetimiyle eklendi */
+  --color-rule-strong: #725a96;
+  --color-on-danger: #000000;
 }
 
 html,

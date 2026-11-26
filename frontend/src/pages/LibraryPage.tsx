@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUpDown,
   CheckSquare,
@@ -22,6 +23,8 @@ import { LibraryTools } from '../components/LibraryTools';
 import { LibraryCover as Cover, LibrarySongRow, toPlayerTrack } from '../components/LibrarySongRow';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatBytes } from '../lib/format';
+import { needsReview } from '../lib/match';
+import { foldText } from '../lib/text';
 import { formatNumber } from '../lib/time';
 import { api, isAbort, toUiError, type UiError } from '../services/api';
 import { invalidateLibraryMatch } from '../state/libraryMatch';
@@ -204,6 +207,8 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Yalnızca eşleşmesi zayıf şarkıları göster (kontrol kipi) */
+  const [reviewOnly, setReviewOnly] = useState(false);
   /** Shift ile aralık seçiminin başlangıcı: sıra değişse de doğru şarkı kalsın diye kimlik tutulur */
   const lastPicked = useRef<string | null>(null);
 
@@ -285,14 +290,29 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
     return failed.length === 0;
   };
 
+  const reviewCount = useMemo(() => (data?.tracks ?? []).filter((tr) => needsReview(tr.source)).length, [data]);
+  useEffect(() => {
+    if (reviewOnly && reviewCount === 0) setReviewOnly(false);
+  }, [reviewOnly, reviewCount]);
+  // Kontrol kipi yalnızca "Şarkılar" listesine aittir; başka görünüme geçince kapanır
+  useEffect(() => setReviewOnly(false), [view]);
+
+  /** Aranabilir metin bir kez hazırlanır (her tuşta binlerce şarkıyı yeniden sadeleştirmemek için) */
+  const searchText = useMemo(
+    () => new Map((data?.tracks ?? []).map((tr) => [tr.id, foldText(`${tr.title} ${tr.artist} ${tr.album ?? ''}`)])),
+    [data],
+  );
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase(lang);
+    // Aksan / büyük-küçük harf / Türkçe ı duyarsız: "gulumse" → "Gülümse"
+    const q = foldText(query);
     return (data?.tracks ?? []).filter(
       (tr) =>
+        (!reviewOnly || needsReview(tr.source)) &&
         (!genre || tr.genre === genre) &&
-        (!q || `${tr.title} ${tr.artist} ${tr.album ?? ''}`.toLocaleLowerCase(lang).includes(q)),
+        (!q || (searchText.get(tr.id) ?? '').includes(q)),
     );
-  }, [data, query, genre, lang]);
+  }, [data, query, genre, reviewOnly, searchText]);
 
   const sorted = useMemo(() => sortTracks(filtered, sort), [filtered, sort]);
 
@@ -466,7 +486,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t('library.search')}
                 aria-label={t('library.search')}
-                className="h-11 w-full rounded-xl bg-panel pr-10 pl-10 text-paper ring-1 ring-rule outline-none placeholder:text-fade focus:ring-amber"
+                className="h-11 w-full rounded-xl bg-panel pr-10 pl-10 text-paper ring-1 ring-rule-strong outline-none placeholder:text-fade focus:ring-amber"
               />
               {query && (
                 <button
@@ -604,6 +624,21 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
         </p>
       )}
 
+      {window.flacsync && reviewCount > 0 && view === 'songs' && !album && !artist && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-amber/10 px-4 py-3 text-sm ring-1 ring-amber/30">
+          <AlertTriangle aria-hidden className="size-5 shrink-0 text-amber" />
+          <p className="min-w-0 flex-1 text-paper">{t('review.banner', { count: reviewCount })}</p>
+          <button
+            type="button"
+            aria-pressed={reviewOnly}
+            onClick={() => setReviewOnly((v) => !v)}
+            className="h-9 rounded-lg bg-amber px-3 font-bold text-on-accent transition hover:bg-amber-hi"
+          >
+            {reviewOnly ? t('review.hide') : t('review.show')}
+          </button>
+        </div>
+      )}
+
       {data && total > 0 && view === 'tools' && <LibraryTools onChanged={() => void load()} />}
       {data && total > 0 && view === 'playlists' && !openList && <PlaylistsGrid tracks={data.tracks} onOpen={setOpenList} />}
       {data && view === 'playlists' && openList && (
@@ -627,7 +662,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                 <select
                   value={sort}
                   onChange={(e) => isSort(e.target.value) && setSort(e.target.value)}
-                  className="h-9 rounded-lg bg-panel px-2.5 font-semibold text-paper ring-1 ring-rule outline-none focus:ring-amber"
+                  className="h-9 rounded-lg bg-panel px-2.5 font-semibold text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
                 >
                   {SORTS.map((s) => (
                     <option key={s} value={s}>
@@ -663,7 +698,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                     type="button"
                     disabled={deleting}
                     onClick={() => void removeMany(selectedTracks.map((x) => x.id)).then(() => setConfirmBulk(false))}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-danger px-3 text-sm font-bold text-white disabled:opacity-60"
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-danger px-3 text-sm font-bold text-on-danger disabled:opacity-60"
                   >
                     {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                     {t('library.confirmYes')}
@@ -733,6 +768,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                 removeLabel={t('library.remove')}
                 confirmRemove
                 selectable={selecting}
+                reviewing={reviewOnly}
                 selected={selected.has(track.id)}
                 onSelect={(range) => pick(i, range)}
               />

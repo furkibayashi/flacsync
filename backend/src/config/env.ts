@@ -25,6 +25,11 @@ const EnvSchema = z.object({
   /** Frontend build klasörü; boşsa ../../frontend/dist */
   FRONTEND_DIST: optionalString,
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  /**
+   * Kütüphaneye başka klasör ekleme ve kütüphane tercihleri. Masaüstü uygulaması açar; sunucu / NAS
+   * kurulumunda kapalıdır (ağdaki biri keyfi bir klasörü kütüphaneye ekleyip dosyalara erişemesin).
+   */
+  LIBRARY_FOLDERS: bool(false),
   /** yt-dlp'nin kullanacağı JavaScript ortamı; boşsa uygulamanın kendi Node'u */
   YTDLP_JS_RUNTIME: optionalString,
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),

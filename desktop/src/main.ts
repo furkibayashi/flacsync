@@ -1,14 +1,13 @@
 import { copyFile } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { dirname, join, parse } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative } from 'node:path';
 import dotenv from 'dotenv';
 import { setupCompanion } from './companion.js';
 import { LanShare } from './lan.js';
 import { Updater } from './updater.js';
 import { downloadHealth } from '../../backend/src/utils/download-errors.js';
-import { ytDlpBusy } from '../../backend/src/utils/ytdlp.js';
 import { ensureYtDlpDir, updateYtDlpDir } from './ytdlp-dir.js';
 import {
   app,
@@ -66,6 +65,17 @@ LOG_LEVEL=info
 /** Paketlenmiş uygulamada resources/, geliştirmede repo kökü. */
 const resourceRoot = () => (app.isPackaged ? process.resourcesPath : join(app.getAppPath(), '..'));
 
+/** Ayarlar'dan seçilen indirme klasörü; okunamazsa / yoksa varsayılan kullanılır */
+let customSaveDir: string | null | undefined;
+function readCustomSaveDir(): string | null {
+  try {
+    const dir = (JSON.parse(readFileSync(join(app.getPath('userData'), 'save-dir.json'), 'utf8')) as { dir?: unknown }).dir;
+    return typeof dir === 'string' && dir.length > 2 && existsSync(dir) ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
 const paths = {
   get userData() {
     return app.getPath('userData');
@@ -105,9 +115,14 @@ const paths = {
   get licenses() {
     return app.isPackaged ? join(resourceRoot(), 'licenses') : resourceRoot();
   },
-  /** Kullanıcının kaydedilen dosyaları: İndirilenler\FlacSync */
+  /** Kullanıcının kaydedilen dosyaları: varsayılan İndirilenler\FlacSync, Ayarlar'dan değiştirilebilir */
   get saveDir() {
-    return join(app.getPath('downloads'), APP_NAME);
+    customSaveDir ??= readCustomSaveDir();
+    return customSaveDir || join(app.getPath('downloads'), APP_NAME);
+  },
+  /** Seçilen indirme klasörü (yeniden başlatınca geçerli olur) */
+  get saveDirFile() {
+    return join(app.getPath('userData'), 'save-dir.json');
   },
 };
 
@@ -140,6 +155,8 @@ function configureEnvironment(): void {
     // Kütüphane = kaydedilen dosyalar; kopya oluşturulmaz, kayıt bitince attach edilir
     LIBRARY_DIR: paths.saveDir,
     LIBRARY_COPY: 'false',
+    // Kütüphaneye klasör ekleme / tercihler (yalnızca masaüstünde)
+    LIBRARY_FOLDERS: 'true',
     LOG_FILE: paths.logFile,
     // Tek kullanıcılı yerel uygulama: istek sınırı pratikte kapalı
     RATE_LIMIT_MAX: '10000',
@@ -169,6 +186,7 @@ async function startServer(): Promise<{ server: Server; url: string }> {
       followService.flush(),
       syncService.flush(),
       jobsService.flush(),
+      import('../../backend/src/services/prefs.service.js').then((m) => m.prefsService.flush()),
     ]).then(
       () => undefined,
     );
@@ -421,6 +439,53 @@ function setupIpc(): void {
     })),
   );
   ipcMain.handle('flacsync:relaunch', () => relaunch());
+
+  // --- Klasörler (Ayarlar → Kütüphane) ---
+  /** Kütüphaneye eklenecek bir müzik klasörü seçtirir; yolu döndürür */
+  ipcMain.handle('flacsync:pick-folder', async () => {
+    const options = { properties: ['openDirectory' as const], title: 'Müzik klasörü seç' };
+    const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  /** İndirilenlerin kaydedileceği klasörü değiştirir; yeniden başlatınca geçerli olur */
+  ipcMain.handle('flacsync:choose-save-dir', async () => {
+    const options = {
+      properties: ['openDirectory' as const, 'createDirectory' as const],
+      title: 'İndirme klasörü',
+      defaultPath: paths.saveDir,
+    };
+    const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+    const chosen = result.canceled ? null : result.filePaths[0];
+    if (!chosen || chosen.toLowerCase() === paths.saveDir.toLowerCase()) return null;
+    try {
+      // Yazılabilir mi? (ör. salt okunur sürücü, izin yok)
+      const probe = join(chosen, `.flacsync-${process.pid}.tmp`);
+      writeFileSync(probe, '');
+      rmSync(probe, { force: true });
+    } catch {
+      return { error: 'Bu klasöre yazılamıyor; başka bir klasör seçin' };
+    }
+    const previous = paths.saveDir;
+    writeFileSync(paths.saveDirFile, JSON.stringify({ dir: chosen }), 'utf8');
+    // Eski klasördeki indirmeler kütüphanede kalsın: (iç içe değilse) müzik klasörü olarak eklenir
+    try {
+      const { prefsService } = await import('../../backend/src/services/prefs.service.js');
+      const inside = (root: string, p: string) => {
+        const rel = relative(root, p);
+        return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+      };
+      const nested = inside(previous, chosen) || inside(chosen, previous);
+      // Yeni indirme klasörü zaten "eklenen klasör"se listeden çıkar (iki kez taranmasın)
+      let folders = prefsService.get().folders.filter((f) => !inside(chosen, f) && !inside(f, chosen));
+      const covered = folders.some((f) => inside(f, previous));
+      if (!nested && !covered && existsSync(previous)) folders = [...folders.filter((f) => !inside(previous, f)), previous];
+      prefsService.update({ folders });
+      await prefsService.flush();
+    } catch (err) {
+      console.warn('Eski indirme klasörü kütüphaneye eklenemedi:', err);
+    }
+    return { path: chosen, restart: true };
+  });
   ipcMain.handle('flacsync:lan', async (_e, enabled: unknown) => {
     if (!lanShare) return null;
     if (enabled === true) return lanShare.enable();
@@ -513,6 +578,8 @@ function watchYtDlpHealth(jobs: JobsServiceLike): void {
     // arama / eşleştirme çağrılarının bitmesi beklenir (en çok 5 dk)
     const release = jobs.hold();
     try {
+      // Geç yükleme: backend modülleri ortam değişkenleri ayarlandıktan sonra yüklenmeli (env içe aktarımda okunur)
+      const { ytDlpBusy } = await import('../../backend/src/utils/ytdlp.js');
       const busy = () => jobs.running > 0 || ytDlpBusy() > 0;
       for (let i = 0; i < 60 && busy(); i++) await new Promise((r) => setTimeout(r, 5_000));
       if (busy()) {

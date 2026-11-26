@@ -4,7 +4,7 @@ import {
   Download,
   ExternalLink,
   FileText,
-  FolderOpen,
+  Library,
   Loader2,
   Palette,
   RefreshCw,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { AudioSettings } from '../components/AudioSettings';
+import { LibrarySettings } from '../components/LibrarySettings';
 import { PhoneShare } from '../components/PhoneShare';
 import { RangeSlider } from '../components/PlayerBar';
 import { usePreferredFormat } from '../hooks/usePreferredFormat';
@@ -104,7 +105,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={clsx('relative h-7 w-12 rounded-full transition', checked ? 'bg-amber' : 'bg-rule')}
+      className={clsx('relative h-7 w-12 rounded-full transition', checked ? 'bg-amber' : 'bg-rule-strong')}
     >
       <span
         className={clsx(
@@ -488,14 +489,6 @@ export function SettingsPage() {
             label={t('settings.format')}
           />
         </Row>
-        {desktop && info && (
-          <Row label={t('settings.saveDir')} hint={info.saveDir}>
-            <button type="button" onClick={() => void desktop.openLocation('library')} className={linkBtn}>
-              <FolderOpen className="size-4" />
-              {t('settings.open')}
-            </button>
-          </Row>
-        )}
         {desktop && <DesktopRows Row={Row} Toggle={Toggle} />}
         {desktop && <PhoneShare />}
         {desktop && (
@@ -513,6 +506,12 @@ export function SettingsPage() {
           </Row>
         )}
       </Section>
+
+      {desktop && (
+        <Section icon={Library} title={t('libset.title')}>
+          <LibrarySettings Row={Row} Toggle={Toggle} saveDir={info?.saveDir ?? null} />
+        </Section>
+      )}
 
       <UpdatePanel />
 

@@ -78,6 +78,7 @@ export function Downloader({ onArtColor, request, onNavigate }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const trackRef = useRef<HTMLElement | null>(null);
   const searchAbort = useRef<AbortController | null>(null);
+  const lastSubmitted = useRef<string | null>(null);
   const trackAbort = useRef<AbortController | null>(null);
 
   const platform = detectPlatform(input);
@@ -195,7 +196,9 @@ export function Downloader({ onArtColor, request, onNavigate }: Props) {
 
   function submit(value = input, force = false) {
     const q = value.trim();
-    if (!q || (busy && !force)) return;
+    // Sürmekte olan arama yenisiyle değiştirilebilir (önceki iptal edilir); aynı sorgu tekrar başlatılmaz
+    if (!q || (busy && !force && q === lastSubmitted.current)) return;
+    lastSubmitted.current = q;
     if (detectPlatform(q)) {
       searchAbort.current?.abort();
       setSearch(null);

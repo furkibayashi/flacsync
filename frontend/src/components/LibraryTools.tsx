@@ -3,7 +3,8 @@ import { ArrowRight, Check, Copy, FolderTree, HeartPulse, Loader2, Trash2, Wand2
 import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatBytes, formatDuration } from '../lib/format';
-import { api } from '../services/api';
+import { api, toUiError } from '../services/api';
+import { toast } from '../state/toast';
 import type { DuplicateGroup, HealthIssue, HealthReport, OrganizeMove } from '../types/api';
 import { LibraryCover } from './LibrarySongRow';
 
@@ -113,7 +114,7 @@ function HealthPanel({ onChanged }: { onChanged: () => void }) {
 
 /** Kopya bulucu: aynı şarkının birden fazla dosyası */
 function DuplicatesPanel({ onChanged }: { onChanged: () => void }) {
-  const { t } = useI18n();
+  const { t, tError } = useI18n();
   const [groups, setGroups] = useState<DuplicateGroup[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -125,7 +126,14 @@ function DuplicatesPanel({ onChanged }: { onChanged: () => void }) {
   };
 
   const remove = async (groupKey: string, id: string) => {
-    await api.deleteFile(id).catch(() => undefined);
+    try {
+      await api.deleteFile(id);
+    } catch (err) {
+      const e = toUiError(err);
+      setConfirm(null);
+      toast({ kind: 'error', message: tError(e.code, e.message) });
+      return;
+    }
     setConfirm(null);
     setGroups((gs) =>
       (gs ?? [])
@@ -261,7 +269,7 @@ function OrganizePanel({ onChanged }: { onChanged: () => void }) {
             setPreview(null);
           }}
           aria-label={t('tools.template')}
-          className="h-10 w-full rounded-xl bg-night px-3 font-mono text-sm text-paper ring-1 ring-rule outline-none focus:ring-amber"
+          className="h-10 w-full rounded-xl bg-night px-3 font-mono text-sm text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
         />
         <p className="text-xs text-fade">{t('tools.tokens')}</p>
         <div className="flex flex-wrap gap-2">

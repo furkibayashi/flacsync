@@ -37,6 +37,20 @@ interface Candidate extends CandidateScore {
   metadata: TrackMetadata;
 }
 
+export interface RematchCandidate {
+  videoId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  duration: number | null;
+  channel: string | null;
+  /** 0-1 */
+  score: number;
+  durationDiff: number | null;
+  strategy: MatchStrategy;
+  pageUrl: string;
+}
+
 const ytMusicSearchUrl = (query: string) =>
   `https://music.youtube.com/search?q=${encodeURIComponent(query)}#songs`;
 
@@ -105,6 +119,77 @@ export class ResolverService {
       'Ses kaynağı eşleşti',
     );
     return result;
+  }
+
+  /**
+   * "Yanlış kayıt" düzeltmesi için en olası adaylar (puanıyla, en iyisi önce). Normal eşleştirmenin
+   * aksine ilk uygun adayda durmaz; YouTube Music aramasındaki ilk birkaç sonucun hepsi incelenir.
+   */
+  async candidates(meta: TrackMetadata, limit = 6): Promise<RematchCandidate[]> {
+    const toleranceSec = env.RESOLVER_DURATION_TOLERANCE_MS / 1000;
+    const plan = this.buildSearchPlan(meta);
+    const seen = new Set<string>();
+    const picked: Array<{ id: string; strategy: MatchStrategy; pre: number }> = [];
+    for (const step of plan) {
+      if (picked.length >= limit) break;
+      const res = await ytDlpJson<{ entries?: YtDlpFlatEntry[] }>(step.url, { flatPlaylist: true, playlistEnd: step.limit }).catch(
+        () => ({ entries: [] as YtDlpFlatEntry[] }),
+      );
+      const ranked = (res.entries ?? [])
+        .filter((e) => e.id && !seen.has(e.id))
+        .map((e) => ({ id: e.id, strategy: step.strategy, pre: step.strategy === 'isrc' ? 1 : preScoreEntry(meta, e.title ?? '') }))
+        .filter((c) => c.pre >= 0.3)
+        .sort((a, b) => b.pre - a.pre);
+      for (const c of ranked) {
+        if (picked.length >= limit) break;
+        seen.add(c.id);
+        picked.push(c);
+      }
+    }
+    const inspected = await Promise.all(picked.map((c) => this.inspect(c.id, meta, c.strategy, toleranceSec)));
+    return inspected
+      .filter((c): c is Candidate => c !== null)
+      .sort((a, b) => b.score - a.score)
+      .map((c) => ({
+        videoId: c.videoId,
+        title: c.metadata.title,
+        artist: c.metadata.artist,
+        album: c.metadata.album,
+        duration: c.metadata.duration,
+        channel: c.info.channel ?? c.info.uploader ?? null,
+        score: Math.round(c.score * 1000) / 1000,
+        durationDiff: c.durationDiff,
+        strategy: c.strategy,
+        pageUrl: `https://music.youtube.com/watch?v=${c.videoId}`,
+      }));
+  }
+
+  /** Kullanıcının seçtiği belirli bir videoyu kaynak olarak hazırlar (puanı yine hesaplanır, eşik aranmaz) */
+  async fromVideo(videoId: string, meta: TrackMetadata): Promise<ResolvedSource> {
+    const candidate = await this.inspect(videoId, meta, 'ytmusic-search', env.RESOLVER_DURATION_TOLERANCE_MS / 1000);
+    if (!candidate) throw new ResolverError('NO_MATCH', `Video açılamadı (${videoId}); silinmiş ya da bölgede kapalı olabilir`);
+    const format = selectBestAudioFormat(candidate.info.formats);
+    if (!format?.url) throw new ResolverError('NO_AUDIO_FORMAT', `Seçilen videoda (${videoId}) DRM'siz ses formatı yok`);
+    const expiry = streamExpiry(format.url);
+    return {
+      provider: 'youtube-music',
+      videoId,
+      pageUrl: `https://music.youtube.com/watch?v=${videoId}`,
+      streamUrl: format.url,
+      httpHeaders: format.http_headers ?? {},
+      expiresAt: expiry?.toISOString() ?? null,
+      format: toAudioFormat(format),
+      match: {
+        strategy: candidate.strategy,
+        score: Math.round(candidate.score * 1000) / 1000,
+        durationDiff: candidate.durationDiff,
+        title: candidate.metadata.title,
+        artist: candidate.metadata.artist,
+        album: candidate.metadata.album,
+      },
+      previewUrl: null,
+      downloadInfo: trimInfoForDownload(candidate.info),
+    };
   }
 
   // -------------------------------------------------------------------------

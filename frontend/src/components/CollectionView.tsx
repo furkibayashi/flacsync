@@ -75,11 +75,12 @@ function RowStatus({ job, title, onDownload }: { job: DownloadJob | null; title:
       <span className="inline-flex items-center gap-2">
         {failed && (
           <span
-            className="inline-flex items-center gap-1.5 text-sm text-danger"
+            className="inline-flex min-w-0 items-center gap-1.5 text-sm text-danger"
             title={job.error ? tError(job.error.code, job.error.message) : undefined}
           >
-            <AlertCircle className="size-4" />
-            {t('collection.rowFailed')}
+            <AlertCircle aria-hidden className="size-4 shrink-0" />
+            {/* Neden satırda yazar (dokunmatik ve klavye kullanıcıları ipucunu göremez) */}
+            <span className="max-w-40 truncate sm:max-w-64">{job.error ? tError(job.error.code, job.error.message) : t('collection.rowFailed')}</span>
           </span>
         )}
         <button

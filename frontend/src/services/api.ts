@@ -3,6 +3,9 @@ import type {
   FollowedArtist,
   GenreFixStatus,
   LibraryTrack,
+  RematchCandidate,
+  LibraryPrefs,
+  ScanStatus,
   Playlist,
   Release,
   DuplicateGroup,
@@ -142,6 +145,17 @@ export const api = {
   rescanLibrary: () => request<{ added: number; removed: number }>('/library/rescan', post({})),
 
   removeFromLibrary: (id: string) => request<{ removed: boolean }>(`/library/tracks/${id}`, { method: 'DELETE' }),
+  rematchCandidates: (id: string, signal?: AbortSignal) =>
+    request<{ current: string | null; candidates: RematchCandidate[] }>(`/library/tracks/${id}/candidates`, { signal }),
+  rematch: (id: string, video: string) => request<{ track: LibraryTrack }>(`/library/tracks/${id}/rematch`, post({ video })),
+  prefs: () => request<LibraryPrefs>('/prefs'),
+  setPrefs: (patch: Partial<Pick<LibraryPrefs, 'lrcSidecar' | 'replayGain'>>) =>
+    request<LibraryPrefs>('/prefs', { method: 'PATCH', body: JSON.stringify(patch) }),
+  addLibraryFolder: (folder: string) => request<{ folders: string[]; scan: ScanStatus }>('/library/folders', post({ path: folder })),
+  removeLibraryFolder: (folder: string) =>
+    request<{ folders: string[] }>('/library/folders', { method: 'DELETE', body: JSON.stringify({ path: folder }) }),
+  libraryScan: () => request<ScanStatus>('/library/scan'),
+  confirmMatch: (id: string) => request<{ track: LibraryTrack }>(`/library/tracks/${id}/match-ok`, post({})),
 
   libraryStreamUrl: (id: string) => `${API_BASE}/library/tracks/${id}/stream`,
 

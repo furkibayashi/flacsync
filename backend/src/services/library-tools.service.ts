@@ -1,3 +1,4 @@
+import { lrcPath } from '../utils/sidecars.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readdir, rename, rmdir } from 'node:fs/promises';
 import { dirname, extname, join, parse, relative, resolve, sep } from 'node:path';
@@ -10,7 +11,7 @@ import { logger } from '../utils/logger.js';
 import { writeTags, type TagFields } from '../utils/tag-writer.js';
 import { fetchCoverAsJpeg } from './download/cover.js';
 import { genreService } from './genre.service.js';
-import { libraryService, type LibraryTrack } from './library.service.js';
+import { isInside, libraryService, type LibraryTrack } from './library.service.js';
 import { lyricsService } from './lyrics/lyrics.service.js';
 import { artistSimilarity, splitArtists, stripTitleNoise, titleSimilarity } from './matcher/similarity.js';
 
@@ -265,9 +266,11 @@ export class LibraryToolsService {
     const root = libraryService.dir;
     const taken = new Set<string>();
     const moves: OrganizeMove[] = [];
-    const entries = libraryService.entries();
+    const all = libraryService.entries();
     // Mevcut, taşınmayacak yollar da "dolu" sayılır
-    for (const t of entries) taken.add(t.path.toLowerCase());
+    for (const t of all) taken.add(t.path.toLowerCase());
+    // Yalnızca indirme klasöründekiler düzenlenir: kullanıcının eklediği kendi klasörlerine dokunulmaz
+    const entries = all.filter((t) => isInside(root, t.path));
     for (const t of entries) {
       const { tags } = await readTags(t.path);
       const target = buildPath(root, template, t, tags, extname(t.path));
@@ -297,6 +300,9 @@ export class LibraryToolsService {
         if (existsSync(to)) throw new Error('Hedef dosya var');
         await rename(from, to);
         libraryService.relocate(m.id, to);
+        // Yanındaki .lrc de birlikte taşınır
+        const lrc = lrcPath(from);
+        if (existsSync(lrc) && !existsSync(lrcPath(to))) await rename(lrc, lrcPath(to)).catch(() => undefined);
         touchedDirs.add(dirname(from));
         moved++;
       } catch (err) {

@@ -17,7 +17,12 @@ import { libraryService } from '../services/library.service.js';
 import { SyncError, syncService } from '../services/sync.service.js';
 import { PlaylistError, playlistService } from '../services/playlist.service.js';
 import { lyricsService } from '../services/lyrics/lyrics.service.js';
+import { rematchService } from '../services/rematch.service.js';
+import { prefsService } from '../services/prefs.service.js';
+import { writeLrcSidecar } from '../utils/sidecars.js';
+import { readEmbeddedLyrics } from '../services/lyrics/tagger.js';
 import { HttpError } from '../utils/http-error.js';
+import { env } from '../config/env.js';
 
 // ---------------------------------------------------------------------------
 // Doğrulama şemaları
@@ -361,6 +366,44 @@ apiRouter.post('/library/match', (req, res) => {
   res.json({ ids: libraryService.match(items) });
 });
 
+// --- Kütüphane tercihleri ve klasörleri ---------------------------------------------------
+
+apiRouter.get('/prefs', (_req, res) => {
+  res.json(prefsService.get());
+});
+
+const prefsBody = z.object({ lrcSidecar: z.boolean().optional(), replayGain: z.boolean().optional() }).strict();
+
+/** Klasör ve tercih değişiklikleri yalnızca masaüstü uygulamasında (LIBRARY_FOLDERS) */
+function requireFolderAccess(): void {
+  if (!env.LIBRARY_FOLDERS) throw new HttpError(403, 'FORBIDDEN', 'Bu ayar yalnızca masaüstü uygulamasından değiştirilebilir');
+}
+
+apiRouter.patch('/prefs', (req, res) => {
+  requireFolderAccess();
+  res.json(prefsService.update(prefsBody.parse(req.body)));
+});
+
+const folderBody = z.object({ path: z.string().trim().min(3).max(1000) });
+
+/** Var olan bir müzik klasörünü kütüphaneye ekler (arka planda taranır) */
+apiRouter.post('/library/folders', (req, res) => {
+  requireFolderAccess();
+  const { path } = folderBody.parse(req.body);
+  res.json({ folders: libraryService.addFolder(path), scan: libraryService.scan });
+});
+
+/** Klasörü kütüphaneden çıkarır; dosyalara dokunulmaz */
+apiRouter.delete('/library/folders', (req, res) => {
+  requireFolderAccess();
+  const { path } = folderBody.parse(req.body);
+  res.json({ folders: libraryService.removeFolder(path) });
+});
+
+apiRouter.get('/library/scan', (_req, res) => {
+  res.json(libraryService.scan);
+});
+
 apiRouter.post('/library/rescan', async (_req, res) => {
   res.json(await libraryService.rescan());
 });
@@ -406,6 +449,27 @@ apiRouter.get('/library/tracks/:id/lyrics', async (req, res) => {
   res.json({ lyrics });
 });
 
+/** "Yanlış kayıt mı?": YouTube'daki aday kayıtlar (en olası önce) */
+apiRouter.get('/library/tracks/:id/candidates', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  res.json(await rematchService.candidates(id));
+});
+
+const rematchBody = z.object({ video: z.string().trim().min(1).max(500) });
+
+/** Şarkının sesini seçilen kayıtla yeniden oluşturur (etiket, kapak, sözler korunur) */
+apiRouter.post('/library/tracks/:id/rematch', async (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  const { video } = rematchBody.parse(req.body);
+  res.json({ track: await rematchService.apply(id, video) });
+});
+
+/** Eşleşme doğru: kontrol listesinden çıkar */
+apiRouter.post('/library/tracks/:id/match-ok', (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  res.json({ track: rematchService.confirm(id) });
+});
+
 /** Sözleri bulup dosyaya gömer (eski indirmeler için) */
 apiRouter.post('/library/tracks/:id/lyrics', async (req, res) => {
   const { id } = libraryParams.parse(req.params);
@@ -417,7 +481,13 @@ apiRouter.post('/library/tracks/:id/lyrics', async (req, res) => {
     { title: track.title, artist: track.artist, album: track.album, duration: track.duration },
     { force: true },
   );
-  if (result.status === 'embedded') await libraryService.touch(id);
+  if (result.status === 'embedded') {
+    await libraryService.touch(id);
+    if (prefsService.get().lrcSidecar) {
+      const embedded = await readEmbeddedLyrics(file).catch(() => null);
+      if (embedded) await writeLrcSidecar(file, embedded).catch(() => false);
+    }
+  }
   res.json(result);
 });
 

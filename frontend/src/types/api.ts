@@ -269,6 +269,29 @@ export interface LibraryTrack {
   lastPlayedAt: string | null;
   loudness?: number | null;
   relativePath: string;
+  /** Sesin geldiği YouTube kaydı ve eşleşme güveni */
+  source?: TrackSource | null;
+}
+
+export interface TrackSource {
+  videoId: string;
+  /** 0-1; bilinmiyorsa null */
+  score: number | null;
+  strategy?: string | null;
+  reviewed?: boolean;
+}
+
+export interface RematchCandidate {
+  videoId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  duration: number | null;
+  channel: string | null;
+  score: number;
+  durationDiff: number | null;
+  strategy: string;
+  pageUrl: string;
 }
 
 export interface LibraryResponse {
@@ -276,6 +299,23 @@ export interface LibraryResponse {
   genres: { name: string; count: number }[];
   totalBytes: number;
   dir: string;
+  /** Eklenen başka müzik klasörleri */
+  folders?: string[];
+  scan?: ScanStatus;
+}
+
+export interface ScanStatus {
+  running: boolean;
+  done: number;
+  total: number;
+  added: number;
+}
+
+/** Sunucu tarafı kütüphane tercihleri */
+export interface LibraryPrefs {
+  lrcSidecar: boolean;
+  replayGain: boolean;
+  folders: string[];
 }
 
 // --- Sanatçı ------------------------------------------------------------------

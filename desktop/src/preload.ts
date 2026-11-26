@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('flacsync', {
   openLocation: (kind: string): Promise<void> => ipcRenderer.invoke('flacsync:open-location', kind),
   updateYtDlp: () => ipcRenderer.invoke('flacsync:update-ytdlp'),
   relaunch: (): Promise<void> => ipcRenderer.invoke('flacsync:relaunch'),
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke('flacsync:pick-folder'),
+  chooseSaveDir: (): Promise<{ path: string; restart: boolean } | { error: string } | null> => ipcRenderer.invoke('flacsync:choose-save-dir'),
 
   update: {
     get: () => ipcRenderer.invoke('flacsync:update-get'),

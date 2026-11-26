@@ -63,3 +63,23 @@ describe('LibraryService', () => {
     expect(lib.filePath('0000000000000000')).toBeNull();
   });
 });
+
+describe('LibraryService.replaceFile', () => {
+  it('dosyayı yerinde değiştirir: kimlik, yol ve istatistikler korunur, eski dosya kenara alınıp silinir', async () => {
+    const { lib, source, root } = setup(true);
+    await lib.recordDownload('job-r', meta, { path: source, fileName: 'r.mp3' });
+    const [track] = lib.list().tracks;
+    const target = lib.filePath(track!.id)!;
+    lib.markPlayed(track!.id);
+    const replacement = join(root, 'new.mp3');
+    writeFileSync(replacement, Buffer.alloc(4096, 7));
+    const updated = await lib.replaceFile(track!.id, replacement, { videoId: 'dQw4w9WgXcQ', score: 0.97, strategy: 'manual', reviewed: true });
+    expect(updated?.id).toBe(track!.id);
+    expect(lib.filePath(track!.id)).toBe(target);
+    expect(updated?.playCount).toBe(1);
+    expect(updated?.source).toMatchObject({ videoId: 'dQw4w9WgXcQ', reviewed: true });
+    expect(updated?.size).toBe(4096);
+    expect(existsSync(`${target}.flacsync-old`)).toBe(false);
+    expect(existsSync(`${target}.flacsync-new`)).toBe(false);
+  });
+});

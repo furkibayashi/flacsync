@@ -78,7 +78,7 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(function SearchBar(
         )}
         <button
           type="submit"
-          disabled={busy || !value.trim() || invalid}
+          disabled={!value.trim() || invalid}
           className="inline-flex h-12 shrink-0 items-center gap-2 rounded-xl bg-paper px-5 font-display text-base font-bold text-night transition hover:bg-paper/85 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy && <Loader2 className="size-4 animate-spin" />}

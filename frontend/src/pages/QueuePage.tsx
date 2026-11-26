@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { FolderOpen, Inbox, ListMusic, Trash2 } from 'lucide-react';
+import { FolderOpen, Inbox, ListMusic, Trash2, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { JobRow } from '../components/JobRow';
 import { QueuePausedBanner } from '../components/QueuePausedBanner';
@@ -63,7 +63,7 @@ function BatchHeader({ batch }: { batch: Batch }) {
 
 export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }) {
   const { t } = useI18n();
-  const { jobs, batches, order, stats, clearFinished } = useQueue();
+  const { jobs, batches, order, stats, clearFinished, resume } = useQueue();
   const [filter, setFilter] = useState<Filter>('all');
 
   const groups = useMemo<Group[]>(() => {
@@ -102,6 +102,17 @@ export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }
           <h1 className="font-display text-4xl font-extrabold tracking-[-0.03em] sm:text-5xl">{t('queue.title')}</h1>
           <p className="mt-2 max-w-[60ch] text-dust">{t('queue.subtitle')}</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        {stats.failed > 0 && (
+          <button
+            type="button"
+            onClick={() => void resume(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber px-4 py-2.5 text-sm font-bold text-on-accent transition hover:bg-amber-hi"
+          >
+            <RotateCcw className="size-4" />
+            {t('queue.retryAllFailed', { count: stats.failed })}
+          </button>
+        )}
         {finished > 0 && (
           <button
             type="button"
@@ -112,6 +123,7 @@ export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }
             {t('queue.clearFinished', { count: finished })}
           </button>
         )}
+        </div>
       </header>
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">

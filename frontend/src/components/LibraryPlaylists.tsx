@@ -2,7 +2,8 @@ import clsx from 'clsx';
 import { ArrowLeft, Clock, Download, FolderOpen, Flame, ListMusic, Play, Plus, Shuffle, Sparkles, Trash2, ListEnd } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
-import { api } from '../services/api';
+import { api, toUiError } from '../services/api';
+import { toast } from '../state/toast';
 import { usePlayer } from '../state/PlayerProvider';
 import { usePlaylists } from '../state/playlists';
 import type { LibraryTrack, Playlist } from '../types/api';
@@ -131,7 +132,7 @@ export function PlaylistsGrid({ tracks, onOpen }: { tracks: LibraryTrack[]; onOp
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === 'Escape' && setCreating(false)}
                   placeholder={t('playlist.namePlaceholder')}
-                  className="h-10 rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule outline-none focus:ring-amber"
+                  className="h-10 rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
                 />
                 <button type="submit" disabled={!name.trim()} className="h-9 rounded-lg bg-amber text-sm font-bold text-on-accent disabled:opacity-40">
                   {t('playlist.create')}
@@ -179,7 +180,7 @@ export function PlaylistDetail({
   onBack: () => void;
   onTrackChange: (t: LibraryTrack) => void;
 }) {
-  const { t } = useI18n();
+  const { t, tError } = useI18n();
   const player = usePlayer();
   const { playlists, reload } = usePlaylists();
   const [renaming, setRenaming] = useState(false);
@@ -204,28 +205,54 @@ export function PlaylistDetail({
     if (queue.length) player.playList(queue, start, { shuffle });
   };
 
+  const reportError = (err: unknown) => {
+    const e = toUiError(err);
+    toast({ kind: 'error', message: tError(e.code, e.message) });
+  };
+
   const removeFromList = async (trackId: string) => {
     if (!playlist) return;
-    await api.updatePlaylist(playlist.id, { trackIds: playlist.trackIds.filter((id) => id !== trackId) }).catch(() => undefined);
+    const before = playlist.trackIds;
+    try {
+      await api.updatePlaylist(playlist.id, { trackIds: before.filter((id) => id !== trackId) });
+    } catch (err) {
+      reportError(err);
+      return;
+    }
     reload();
+    toast({
+      message: t('playlist.trackRemoved'),
+      action: {
+        label: t('action.undo'),
+        run: () => void api.updatePlaylist(playlist.id, { trackIds: before }).then(reload, reportError),
+      },
+    });
   };
 
   const rename = async () => {
     if (!playlist || !name.trim()) return setRenaming(false);
-    await api.updatePlaylist(playlist.id, { name: name.trim() }).catch(() => undefined);
+    await api.updatePlaylist(playlist.id, { name: name.trim() }).catch(reportError);
     setRenaming(false);
     reload();
   };
 
   const exportToFolder = async () => {
     if (!playlist) return;
-    const r = await api.exportPlaylist(playlist.id).catch(() => null);
+    const r = await api.exportPlaylist(playlist.id).catch((err: unknown) => {
+      reportError(err);
+      return null;
+    });
     setExported(r?.file ?? null);
   };
 
   const remove = async () => {
     if (!playlist) return;
-    await api.deletePlaylist(playlist.id).catch(() => undefined);
+    try {
+      await api.deletePlaylist(playlist.id);
+    } catch (err) {
+      reportError(err);
+      return;
+    }
     reload();
     onBack();
   };

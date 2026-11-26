@@ -2,6 +2,7 @@ import { ImagePlus, Loader2, Save, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '../i18n/I18nProvider';
+import { lockBackground } from '../lib/inert';
 import { api, toUiError } from '../services/api';
 import type { LibraryTrack, TagEdit } from '../types/api';
 import { LibraryCover } from './LibrarySongRow';
@@ -26,10 +27,21 @@ export function TagEditor({ track, onClose, onSaved }: { track: LibraryTrack; on
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => !e.defaultPrevented && e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Pencere açıkken arka plan erişilemez; odak ilk alana gelir, kapanınca açan düğmeye döner
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const unlock = lockBackground();
+    requestAnimationFrame(() => document.getElementById(`tag-${track.id}-title`)?.focus());
+    return () => {
+      unlock();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [track.id]);
 
   const pickFile = (file: File | undefined) => {
     if (!file) return;
@@ -68,17 +80,23 @@ export function TagEditor({ track, onClose, onSaved }: { track: LibraryTrack; on
     <label className="block">
       <span className="text-xs font-semibold text-dust">{label}</span>
       <input
+        id={`tag-${track.id}-${key}`}
         value={form[key]}
         onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
         inputMode={extra?.inputMode}
         maxLength={extra?.maxLength ?? 300}
-        className="mt-1 h-10 w-full rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule outline-none focus:ring-amber"
+        className="mt-1 h-10 w-full rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
       />
     </label>
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       <form
         onSubmit={(e) => void save(e)}
         role="dialog"
@@ -88,7 +106,7 @@ export function TagEditor({ track, onClose, onSaved }: { track: LibraryTrack; on
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 className="font-display text-xl font-bold text-paper">{t('tags.title')}</h2>
-          <button type="button" onClick={onClose} aria-label={t('lyrics.close')} className="grid size-8 place-items-center rounded-full text-dust hover:bg-raised hover:text-paper">
+          <button type="button" onClick={onClose} aria-label={t('action.close')} className="grid size-10 place-items-center rounded-full text-dust hover:bg-raised hover:text-paper">
             <X className="size-4" />
           </button>
         </div>
@@ -97,16 +115,18 @@ export function TagEditor({ track, onClose, onSaved }: { track: LibraryTrack; on
             <span className="relative block aspect-square overflow-hidden rounded-xl ring-1 ring-rule">
               {coverData ? <img src={coverData} alt="" className="size-full object-cover" /> : <LibraryCover id={track.id} className="size-full" />}
             </span>
-            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-raised py-2 text-xs font-semibold text-paper ring-1 ring-rule hover:ring-dust">
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-raised py-2 text-xs font-semibold text-paper ring-1 ring-rule-strong hover:ring-dust focus-within:ring-2 focus-within:ring-amber">
               <ImagePlus className="size-4" />
               {t('tags.pickCover')}
-              <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
+              {/* sr-only: klavyeyle de seçilebilsin (display:none odaklanamaz) */}
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => pickFile(e.target.files?.[0])} />
             </label>
             <input
+              aria-label={t('tags.coverUrl')}
               value={coverUrl}
               onChange={(e) => setCoverUrl(e.target.value)}
               placeholder={t('tags.coverUrl')}
-              className="h-8 w-full rounded-lg bg-night px-2 text-xs text-paper ring-1 ring-rule outline-none focus:ring-amber"
+              className="h-8 w-full rounded-lg bg-night px-2 text-xs text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
             />
           </div>
           <div className="grid gap-3 sm:grid-cols-2">

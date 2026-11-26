@@ -45,6 +45,10 @@ declare global {
       openLocation(kind: 'settings' | 'logs' | 'licenses' | 'library'): Promise<void>;
       updateYtDlp(): Promise<{ updated: boolean; from: string; to: string } | { error: string }>;
       relaunch(): Promise<void>;
+      /** Kütüphaneye eklenecek müzik klasörünü seçtirir */
+      pickFolder?(): Promise<string | null>;
+      /** İndirme klasörünü değiştirir (yeniden başlatınca geçerli) */
+      chooseSaveDir?(): Promise<{ path: string; restart: boolean } | { error: string } | null>;
       update: {
         get(): Promise<DesktopUpdateState | null>;
         check(): Promise<DesktopUpdateState | null>;

@@ -4,6 +4,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { historyService } from './services/history.service.js';
 import { jobsService } from './services/jobs.service.js';
+import { prefsService } from './services/prefs.service.js';
 import { syncService } from './services/sync.service.js';
 import { logger } from './utils/logger.js';
 
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
   const shutdown = (signal: string) => {
     logger.info(`${signal} alındı, sunucu kapatılıyor`);
     jobsService.stopSweeper();
-    void Promise.all([historyService.flush(), jobsService.flush()]).finally(() => server.close(() => process.exit(0)));
+    void Promise.all([historyService.flush(), jobsService.flush(), prefsService.flush()]).finally(() => server.close(() => process.exit(0)));
     // Açık SSE bağlantıları kapanmayı engellemesin
     setTimeout(() => process.exit(0), 5_000).unref();
   };

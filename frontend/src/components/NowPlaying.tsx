@@ -18,9 +18,10 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '../i18n/I18nProvider';
+import { lockBackground } from '../lib/inert';
 import { usePlayer } from '../state/PlayerProvider';
 import { AddToPlaylist } from './AddToPlaylist';
 import { QueueList } from './QueueList';
@@ -51,9 +52,22 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
   const lyricsState = useTrackLyrics();
 
   useEffect(() => setCoverFailed(false), [track?.coverUrl]);
+  // Açılınca odak "Kapat"a gelir, arka plan (uygulamanın geri kalanı) Tab ile erişilemez olur;
+  // kapanınca odak ekranı açan düğmeye döner.
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const unlock = lockBackground();
+    closeRef.current?.focus();
+    return () => {
+      unlock();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+
   useEffect(() => {
     const id = requestAnimationFrame(() => setOut(true));
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => !e.defaultPrevented && e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -86,6 +100,7 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
 
       <header className="relative z-10 flex shrink-0 items-center justify-between gap-3 px-5 py-4 sm:px-8">
         <button
+          ref={closeRef}
           type="button"
           onClick={onClose}
           title={`${t('nowPlaying.close')} (Esc)`}
@@ -183,7 +198,8 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
                 type="button"
                 onClick={p.cycleRepeat}
                 title={t(p.repeat === 'off' ? 'player.repeatOff' : p.repeat === 'all' ? 'player.repeatAll' : 'player.repeatOne')}
-                aria-label={t('player.repeatAll')}
+                aria-label={t(p.repeat === 'off' ? 'player.repeatOff' : p.repeat === 'all' ? 'player.repeatAll' : 'player.repeatOne')}
+                aria-pressed={p.repeat !== 'off'}
                 className={round(p.repeat !== 'off')}
               >
                 <RepeatIcon className="size-5" />

@@ -42,6 +42,10 @@ export interface DownloadRequest {
   signal?: AbortSignal;
   /** false: söz aranmaz (varsayılan LYRICS_ENABLED) */
   lyrics?: boolean;
+  /** Hazır kapak (ör. kütüphanedeki dosyadan); verilirse coverUrl indirilmez, null: kapaksız */
+  presetCover?: Buffer | null;
+  /** Hazır sözler; verilirse LRCLib'de aranmaz, null: sözsüz */
+  presetLyrics?: Lyrics | null;
   onProgress?: (progress: DownloadProgress) => void;
 }
 
@@ -165,7 +169,9 @@ export class DownloaderService {
 
     try {
       // Kapak, ses indirilirken paralel hazırlanır; başarısız olursa kapaksız devam edilir
-      const coverPromise: Promise<Buffer | null> = metadata.coverUrl
+      const coverPromise: Promise<Buffer | null> = req.presetCover !== undefined
+        ? Promise.resolve(req.presetCover)
+        : metadata.coverUrl
         ? fetchCoverAsJpeg(metadata.coverUrl, this.tempDir, `${id}.fetch`).catch((err) => {
             logger.warn({ err, id }, 'Kapak indirilemedi, kapaksız devam ediliyor');
             return null;
@@ -173,8 +179,9 @@ export class DownloaderService {
         : Promise.resolve(null);
 
       // Sözler de paralel aranır; bulunamazsa / ağ hatasında sözsüz devam edilir (hata fırlatmaz)
-      const lyricsPromise: Promise<Lyrics | null> =
-        lyricsService.isEnabled && req.lyrics !== false
+      const lyricsPromise: Promise<Lyrics | null> = req.presetLyrics !== undefined
+        ? Promise.resolve(req.presetLyrics)
+        : lyricsService.isEnabled && req.lyrics !== false
           ? lyricsService.find({
               title: metadata.title,
               artist: metadata.artist,

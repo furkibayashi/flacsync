@@ -1,6 +1,6 @@
 import clsx from 'clsx';
-import { Check, Disc3, Download, FilePenLine, Loader2, Pencil, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { AlertTriangle, Check, Disc3, Download, FilePenLine, ListEnd, ListStart, Loader2, MoreHorizontal, Pencil, Replace, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration } from '../lib/format';
 import { api } from '../services/api';
@@ -10,7 +10,9 @@ import { AddToPlaylist } from './AddToPlaylist';
 import { ArtistLinks } from './ArtistLinks';
 import { RowPlayButton } from './PlayButton';
 import { TagEditor } from './TagEditor';
-import { Popover } from './Popover';
+import { MenuItem, Popover } from './Popover';
+import { RematchDialog } from './RematchDialog';
+import { needsReview } from '../lib/match';
 
 export const toPlayerTrack = (t: LibraryTrack): PlayerTrack => ({
   id: `lib:${t.id}`,
@@ -91,7 +93,7 @@ function GenreChip({ track, knownGenres, onChange }: { track: LibraryTrack; know
             value={value}
             maxLength={60}
             onChange={(e) => setValue(e.target.value)}
-            className="h-9 w-full rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule outline-none focus:ring-amber"
+            className="h-9 w-full rounded-lg bg-night px-3 text-sm text-paper ring-1 ring-rule-strong outline-none focus:ring-amber"
           />
           <datalist id={listId}>
             {knownGenres.map((g) => (
@@ -125,11 +127,12 @@ export function LibrarySongRow({
   selectable = false,
   selected = false,
   onSelect,
+  reviewing = false,
 }: {
   track: LibraryTrack;
   index: number;
   onPlay: () => void;
-  /** Yoksa kaldırma düğmesi gösterilmez (akıllı listeler) */
+  /** Yoksa kaldırma seçeneği gösterilmez (akıllı listeler) */
   onRemove?: () => void;
   /** Kütüphaneden mi, listeden mi kaldırılacağı */
   removeLabel?: string;
@@ -142,18 +145,40 @@ export function LibrarySongRow({
   selectable?: boolean;
   selected?: boolean;
   onSelect?: (range: boolean) => void;
+  /** Eşleşme kontrolü: satırda "Doğru" / "Başka kayıt" düğmeleri */
+  reviewing?: boolean;
 }) {
   const { t } = useI18n();
-  const { current, playing } = usePlayer();
+  const player = usePlayer();
+  const { current, playing } = player;
   const [editing, setEditing] = useState(false);
+  const [rematching, setRematching] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  /** Menüden açılan pencere kapanınca odak "⋯" düğmesine döner (menü öğesi o arada kaybolur) */
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = () => setTimeout(() => moreRef.current?.focus(), 0);
   const active = current?.id === `lib:${track.id}`;
+  const weak = needsReview(track.source);
+  const scorePct = track.source?.score !== null && track.source?.score !== undefined ? Math.round(track.source.score * 100) : null;
 
   useEffect(() => {
     if (!armed) return;
-    const timer = setTimeout(() => setArmed(false), 3500);
+    const timer = setTimeout(() => setArmed(false), 4000);
     return () => clearTimeout(timer);
   }, [armed]);
+
+  const confirmMatch = async () => {
+    setConfirming(true);
+    try {
+      const { track: updated } = await api.confirmMatch(track.id);
+      onChange(updated);
+    } catch {
+      // ağ hatası: satır olduğu gibi kalır, kullanıcı yeniden dener
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   return (
     <li
@@ -161,12 +186,11 @@ export function LibrarySongRow({
       onClick={
         selectable
           ? (e) => {
-              if ((e.target as HTMLElement).closest('button, a, input, select, [role="dialog"]')) return;
+              if ((e.target as HTMLElement).closest('button, a, input, select, dialog, [role="dialog"], [role="menu"]')) return;
               onSelect?.(e.shiftKey);
             }
           : undefined
       }
-      aria-selected={selectable ? selected : undefined}
       className={clsx(
         'group flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-raised/60 sm:gap-4 sm:px-3',
         active && 'bg-raised/70',
@@ -189,28 +213,60 @@ export function LibrarySongRow({
           />
         </span>
       ) : (
-        <span className="w-6 shrink-0 text-right text-sm text-fade tabular-nums">{track.trackNumber ?? index + 1}</span>
+        <span className="w-6 shrink-0 text-right text-sm text-fade tabular-nums">{showAlbum ? index + 1 : track.trackNumber ?? index + 1}</span>
       )}
       <LibraryCover id={track.id} className="size-11 rounded-md" />
       <span className="min-w-0 flex-1">
-        <span className={clsx('block truncate font-semibold', active ? 'text-amber' : 'text-paper')}>{track.title}</span>
+        <span className={clsx('flex items-center gap-1.5 font-semibold', active ? 'text-amber' : 'text-paper')}>
+          <span className="truncate">{track.title}</span>
+          {weak && (
+            <span title={t('review.lowConfidence', { score: scorePct ?? 0 })} className="shrink-0 text-amber">
+              <AlertTriangle aria-hidden className="size-3.5" />
+              <span className="sr-only">{t('review.lowConfidence', { score: scorePct ?? 0 })}</span>
+            </span>
+          )}
+        </span>
         {track.artist ? (
           <ArtistLinks names={track.artist} className="block truncate text-sm text-dust" />
         ) : (
           <span className="block truncate text-sm text-dust">—</span>
         )}
       </span>
-      {showAlbum && <span className="hidden min-w-0 flex-1 truncate text-sm text-fade lg:block">{track.album}</span>}
-      <GenreChip track={track} knownGenres={knownGenres} onChange={onChange} />
-      <span
-        className={clsx(
-          'hidden shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase sm:block',
-          track.format === 'flac' ? 'bg-flac/20 text-flac' : 'bg-amber/15 text-amber',
-        )}
-      >
-        {track.format}
-      </span>
-      <span className="hidden w-12 shrink-0 text-right text-sm text-fade tabular-nums sm:block">{formatDuration(track.duration)}</span>
+      {reviewing && window.flacsync ? (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => void confirmMatch()}
+            disabled={confirming}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-ok ring-1 ring-ok/40 transition hover:bg-ok/10 disabled:opacity-50"
+          >
+            {confirming ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+            <span className="hidden sm:inline">{t('review.ok')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRematching(true)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-paper ring-1 ring-rule-strong transition hover:ring-dust"
+          >
+            <Replace className="size-4" />
+            <span className="hidden sm:inline">{t('review.other')}</span>
+          </button>
+        </span>
+      ) : (
+        <>
+          {showAlbum && <span className="hidden min-w-0 flex-1 truncate text-sm text-fade lg:block">{track.album}</span>}
+          <GenreChip track={track} knownGenres={knownGenres} onChange={onChange} />
+          <span
+            className={clsx(
+              'hidden shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase sm:block',
+              track.format === 'flac' ? 'bg-flac/20 text-flac' : 'bg-amber/15 text-amber',
+            )}
+          >
+            {track.format}
+          </span>
+          <span className="hidden w-12 shrink-0 text-right text-sm text-fade tabular-nums sm:block">{formatDuration(track.duration)}</span>
+        </>
+      )}
       <RowPlayButton active={active} playing={active && playing} onClick={onPlay} />
       {/* Telefondan / tarayıcıdan açıldıysa: dosyayı bu cihaza indir */}
       {!window.flacsync && (
@@ -225,43 +281,113 @@ export function LibrarySongRow({
           <Download className="size-4" />
         </a>
       )}
-      {window.flacsync && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setEditing(true);
+      <AddToPlaylist trackIds={[track.id]} side="bottom" className="opacity-60 group-hover:opacity-100 focus-visible:opacity-100" />
+      <Popover
+        side="bottom"
+        label={t('library.more')}
+        trigger={({ toggle, open }) => (
+          <button
+            ref={moreRef}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle();
+            }}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            title={t('library.more')}
+            aria-label={`${t('library.more')}: ${track.title}`}
+            className={clsx(
+              'grid size-9 shrink-0 place-items-center rounded-full transition hover:bg-raised',
+              open || armed ? 'text-paper' : 'text-dust hover:text-paper',
+            )}
+          >
+            <MoreHorizontal className="size-5" />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            <MenuItem
+              icon={<ListStart className="size-4 text-amber" />}
+              onClick={() => {
+                player.playNext([toPlayerTrack(track)]);
+                close();
+              }}
+            >
+              {t('player.playNext')}
+            </MenuItem>
+            <MenuItem
+              icon={<ListEnd className="size-4 text-amber" />}
+              onClick={() => {
+                player.addToQueue([toPlayerTrack(track)]);
+                close();
+              }}
+            >
+              {t('player.addToQueue')}
+            </MenuItem>
+            {window.flacsync && (
+              <>
+                <span className="my-1 block h-px bg-rule" />
+                <MenuItem
+                  icon={<FilePenLine className="size-4" />}
+                  onClick={() => {
+                    close();
+                    setEditing(true);
+                  }}
+                >
+                  {t('tags.title')}
+                </MenuItem>
+                <MenuItem
+                  icon={<Replace className="size-4" />}
+                  onClick={() => {
+                    close();
+                    setRematching(true);
+                  }}
+                >
+                  {t('rematch.menu')}
+                </MenuItem>
+              </>
+            )}
+            {onRemove && (
+              <>
+                <span className="my-1 block h-px bg-rule" />
+                <MenuItem
+                  danger
+                  icon={<Trash2 className="size-4" />}
+                  onClick={() => {
+                    if (confirmRemove && !armed) return setArmed(true);
+                    setArmed(false);
+                    close();
+                    onRemove();
+                  }}
+                >
+                  {armed ? t('library.confirmRemove') : removeLabel}
+                </MenuItem>
+              </>
+            )}
+          </>
+        )}
+      </Popover>
+      {editing && (
+        <TagEditor
+          track={track}
+          onClose={() => {
+            setEditing(false);
+            returnFocus();
           }}
-          title={t('tags.title')}
-          aria-label={t('tags.title')}
-          className="hidden size-9 shrink-0 place-items-center rounded-full text-dust opacity-60 transition group-hover:opacity-100 hover:bg-raised hover:text-paper sm:grid"
-        >
-          <FilePenLine className="size-4" />
-        </button>
+          onSaved={onChange}
+        />
       )}
-      {editing && <TagEditor track={track} onClose={() => setEditing(false)} onSaved={onChange} />}
-      <AddToPlaylist trackIds={[track.id]} playerTracks={[toPlayerTrack(track)]} side="bottom" className="opacity-60 group-hover:opacity-100" />
-      {onRemove ? (
-        <button
-          type="button"
-          onClick={() => {
-            if (confirmRemove && !armed) return setArmed(true);
-            setArmed(false);
-            onRemove();
+      {rematching && (
+        <RematchDialog
+          track={track}
+          onClose={() => {
+            setRematching(false);
+            returnFocus();
           }}
-          title={armed ? t('library.confirmRemove') : removeLabel}
-          aria-label={armed ? t('library.confirmRemove') : removeLabel}
-          className={clsx(
-            'grid shrink-0 place-items-center rounded-full transition focus-visible:opacity-100',
-            armed
-              ? 'h-9 bg-danger px-3 text-xs font-bold text-white opacity-100'
-              : 'size-9 text-fade opacity-0 group-hover:opacity-100 hover:text-danger',
-          )}
-        >
-          {armed ? t('library.confirmShort') : <Trash2 className="size-4" />}
-        </button>
-      ) : (
-        <span className="size-9 shrink-0" />
+          onReplaced={onChange}
+        />
       )}
     </li>
   );
