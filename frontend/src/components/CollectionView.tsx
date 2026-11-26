@@ -148,7 +148,7 @@ export function CollectionView({ collection, onReset }: Props) {
   const ownedId = useLibraryMatch(collection.tracks);
   const owned = useMemo(
     () => new Map(collection.tracks.flatMap((tr) => {
-      const id = ownedId(tr.artist, tr.title);
+      const id = ownedId(tr.artist, tr.title, tr.duration);
       return id ? [[tr.url, id] as const] : [];
     })),
     [collection.tracks, ownedId],

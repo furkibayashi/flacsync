@@ -67,13 +67,16 @@ export interface GuardInput {
 /** İzin verilmeyen isteklerde nedenini, izinlide null döndürür (test edilebilir saf fonksiyon). */
 export function guardReason(req: GuardInput, allowedOriginHosts: string[] = extraOrigins()): string | null {
   if (!isAllowedHost(req.host)) return 'host';
-  if (req.secFetchSite === 'cross-site') return 'cross-site';
+  // "same-site" de reddedilir: localhost'un başka bir portundaki sayfa (başka bir geliştirme
+  // sunucusu, yerel bir web uygulaması) tarayıcıya göre aynı sitedir ama FlacSync değildir.
+  if (req.secFetchSite === 'cross-site' || req.secFetchSite === 'same-site') return 'cross-site';
   if (SAFE_METHODS.has(req.method.toUpperCase())) return null;
 
   // "null" köken (sandbox iframe, file://) değişiklik yapamaz
   if (req.origin === 'null') return 'origin';
-  const from = originHost(req.origin) ?? originHost(req.referer);
-  if (from && !isAllowedHost(from) && !allowedOriginHosts.includes(from)) return 'origin';
+  const from = (originHost(req.origin) ?? originHost(req.referer))?.toLowerCase();
+  // Köken, port dahil isteğin gittiği adresle aynı olmalı (ya da açıkça izin verilmiş olmalı)
+  if (from && from !== req.host?.trim().toLowerCase() && !allowedOriginHosts.includes(from)) return 'origin';
   return null;
 }
 

@@ -8,6 +8,7 @@ import { setupCompanion } from './companion.js';
 import { LanShare } from './lan.js';
 import { Updater } from './updater.js';
 import { downloadHealth } from '../../backend/src/utils/download-errors.js';
+import { ytDlpBusy } from '../../backend/src/utils/ytdlp.js';
 import { ensureYtDlpDir, updateYtDlpDir } from './ytdlp-dir.js';
 import {
   app,
@@ -480,6 +481,8 @@ async function updateYtDlp(): Promise<void> {
 type JobsServiceLike = {
   snapshot(): { stats: { active: number } };
   resume(options?: { retryFailed?: boolean; codes?: string[] }): number;
+  hold(): () => void;
+  readonly running: number;
 };
 
 const YTDLP_AUTO_MIN_INTERVAL_MS = 6 * 60 * 60_000;
@@ -506,10 +509,21 @@ function watchYtDlpHealth(jobs: JobsServiceLike): void {
     if (running || Date.now() - lastAttempt < YTDLP_AUTO_MIN_INTERVAL_MS) return;
     running = true;
     lastAttempt = Date.now();
+    // yt-dlp klasörü kullanımdayken değiştirilemez: yeni indirmeler bekletilir, çalışanların ve
+    // arama / eşleştirme çağrılarının bitmesi beklenir (en çok 5 dk)
+    const release = jobs.hold();
     try {
-      // yt-dlp klasörü kullanımdayken değiştirilemez: çalışan indirmelerin bitmesi beklenir (en çok 3 dk)
-      for (let i = 0; i < 36 && jobs.snapshot().stats.active > 0; i++) await new Promise((r) => setTimeout(r, 5_000));
-      const result = await updateYtDlpDir(paths.ytDlpDir, join(app.getPath('temp'), APP_NAME));
+      const busy = () => jobs.running > 0 || ytDlpBusy() > 0;
+      for (let i = 0; i < 60 && busy(); i++) await new Promise((r) => setTimeout(r, 5_000));
+      if (busy()) {
+        lastAttempt = Date.now() - YTDLP_AUTO_MIN_INTERVAL_MS + 10 * 60_000; // 10 dk sonra yeniden dene
+        throw new Error('yt-dlp hâlâ kullanımda; güncelleme ertelendi');
+      }
+      const result = await updateYtDlpDir(paths.ytDlpDir, join(app.getPath('temp'), APP_NAME)).catch((err: NodeJS.ErrnoException) => {
+        // Klasör kilitliyse (Windows) 6 saat beklemeden kısa süre sonra yeniden denenir
+        if (err.code === 'EBUSY' || err.code === 'EPERM') lastAttempt = Date.now() - YTDLP_AUTO_MIN_INTERVAL_MS + 10 * 60_000;
+        throw err;
+      });
       mkdirSync(dirname(stampFile), { recursive: true });
       writeFileSync(stampFile, JSON.stringify({ at: Date.now(), version: result.to }), 'utf8');
       if (result.updated) {
@@ -527,6 +541,7 @@ function watchYtDlpHealth(jobs: JobsServiceLike): void {
     } catch (err) {
       console.warn('yt-dlp otomatik güncellenemedi:', err);
     } finally {
+      release();
       running = false;
     }
   };

@@ -17,12 +17,16 @@ const EnvSchema = z.object({
   // --- Sunucu ---
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
+  /** Dinlenecek adres. Varsayılan yalnızca bu bilgisayar; ağa açmak için 0.0.0.0 (dikkat: kimlik doğrulama yok) */
+  HOST: z.string().default('127.0.0.1'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Tanımlıysa loglar stdout yerine bu dosyaya yazılır (masaüstü uygulaması) */
   LOG_FILE: optionalString,
   /** Frontend build klasörü; boşsa ../../frontend/dist */
   FRONTEND_DIST: optionalString,
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  /** yt-dlp'nin kullanacağı JavaScript ortamı; boşsa uygulamanın kendi Node'u */
+  YTDLP_JS_RUNTIME: optionalString,
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
 

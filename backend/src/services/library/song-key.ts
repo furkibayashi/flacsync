@@ -3,6 +3,7 @@ import { splitArtists, stripTitleNoise } from '../matcher/similarity.js';
 const norm = (s: string) =>
   s
     .toLocaleLowerCase('en')
+    .replace(/ı/g, 'i')
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')

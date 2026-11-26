@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import yazl from 'yazl';
 import { z } from 'zod';
 import { MAX_COLLECTION_TRACKS } from '../services/metadata/normalize.js';
-import { jobsService, toPublicSource, type PublicJob } from '../services/jobs.service.js';
+import { folderName, jobsService, toPublicSource, type PublicJob } from '../services/jobs.service.js';
 import { MetadataError, metadataService } from '../services/metadata.service.js';
 import { finalizeMetadata } from '../services/metadata/normalize.js';
 import { historyService } from '../services/history.service.js';
@@ -188,10 +188,12 @@ apiRouter.get('/batch/:id/zip', (req, res) => {
   if (files.length === 0) throw new HttpError(409, 'FILE_NOT_READY', 'Henüz tamamlanan parça yok');
 
   const zip = new yazl.ZipFile();
-  for (const file of files) zip.addFile(file.path, `${data.batch.folder}/${file.name}`, { compress: false });
+  // Arama sonuçlarından seçimle indirilenlerin klasörü yoktur: adı toplu işin adından türet
+  const folder = data.batch.folder ?? folderName(data.batch.name);
+  for (const file of files) zip.addFile(file.path, `${folder}/${file.name}`, { compress: false });
   zip.end();
 
-  res.attachment(`${data.batch.folder}.zip`);
+  res.attachment(`${folder}.zip`);
   res.type('application/zip');
   zip.outputStream.pipe(res);
 });
@@ -350,7 +352,7 @@ apiRouter.get('/library', (_req, res) => {
 /** Hangi şarkılar zaten kütüphanede? (arama, albüm, sanatçı ve keşfet ekranlarındaki rozet için) */
 const matchBody = z.object({
   items: z
-    .array(z.object({ artist: z.string().max(300), title: z.string().max(300) }))
+    .array(z.object({ artist: z.string().max(300), title: z.string().max(300), duration: z.number().nonnegative().nullish() }))
     .max(500),
 });
 

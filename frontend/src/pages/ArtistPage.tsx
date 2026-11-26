@@ -99,7 +99,7 @@ export function ArtistPage({ id, onOpen, onBack }: { id: string | null; onOpen: 
   const previews = useMemo(
     () =>
       (data?.topTracks ?? []).flatMap((x): PlayerTrack[] => {
-        const libId = ownedId(x.artist, x.title);
+        const libId = ownedId(x.artist, x.title, x.duration);
         if (libId) return [{ ...libraryPlayerTrack(libId, x), id: `artist:${x.id}` }];
         return x.previewUrl ? [toPlayerTrack(x)] : [];
       }),
@@ -267,12 +267,12 @@ export function ArtistPage({ id, onOpen, onBack }: { id: string | null; onOpen: 
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className={clsx('truncate font-semibold', active ? 'text-amber' : 'text-paper')}>{track.title}</span>
-                      {ownedId(track.artist, track.title) && <InLibraryBadge compact />}
+                      {ownedId(track.artist, track.title, track.duration) && <InLibraryBadge compact />}
                     </span>
                     <span className="block truncate text-sm text-dust">{track.album}</span>
                   </span>
                   <span className="hidden w-12 text-right text-sm text-fade tabular-nums sm:block">{formatDuration(track.duration)}</span>
-                  <RowPlayButton active={active} playing={active && player.playing} onClick={() => playFrom(track)} disabled={!track.previewUrl && !ownedId(track.artist, track.title)} />
+                  <RowPlayButton active={active} playing={active && player.playing} onClick={() => playFrom(track)} disabled={!track.previewUrl && !ownedId(track.artist, track.title, track.duration)} />
                   <button
                     type="button"
                     onClick={() => void add(track)}

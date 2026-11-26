@@ -20,6 +20,12 @@ const BLOCKED: Array<[string, RegExp]> = [
   ['PUT', /^\/api\/library\/tracks\//],
   ['POST', /^\/api\/library\/(organize\/apply|health\/fix|genres\/fix|tracks\/[^/]+\/(tags|lyrics))/],
   ['DELETE', /^\/api\/(history|playlists|sync|follows)(\/|$)/],
+  // Listeyi boşaltma / senkron ayarını değiştirme, dışa aktarma (bilgisayara dosya yazar)
+  ['PATCH', /^\/api\/(playlists|sync)(\/|$)/],
+  ['PUT', /^\/api\/(playlists|sync)(\/|$)/],
+  ['POST', /^\/api\/playlists\/[^/]+\/export/],
+  // "Yeniden dene" listesini silme
+  ['DELETE', /^\/api\/queue\/finished/],
 ];
 
 /** "/API//Library/./tracks/x/" → "/api/library/tracks/x" */
@@ -109,7 +115,13 @@ export class LanShare {
     const server = this.server;
     this.server = null;
     this.token = '';
-    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      // Telefonda açık sayfanın canlı bağlantıları (SSE) kendiliğinden bitmez: kapatma beklemede
+      // kalmasın ve erişimi kaldırılan telefon veri almaya devam etmesin diye hepsi kesilir.
+      server.closeAllConnections();
+      await closed;
+    }
     this.status = { enabled: false, url: null, qr: null, addresses: [], error: null };
     return this.status;
   }

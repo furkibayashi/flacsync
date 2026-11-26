@@ -5,31 +5,40 @@ import { useQueue } from './QueueProvider';
 
 /**
  * "Bu şarkı zaten kütüphanende mi?" Arama, albüm, sanatçı ve keşfet ekranları sorar; sonuçlar
- * önbellekte tutulur, yeni bir indirme bitince önbellek tazelenir.
+ * önbellekte tutulur, yeni bir indirme bitince önbellek tazelenir. Süre de gönderilir ki aynı
+ * sanatçının farklı albümlerdeki "Intro"su "zaten var" sayılmasın.
  */
+type MatchItem = { artist: string; title: string; duration?: number | null };
+
 const cache = new Map<string, string | null>();
 const listeners = new Set<() => void>();
-const keyOf = (artist: string, title: string) => `${artist.toLowerCase()}\u0000${title.toLowerCase()}`;
+/** Önbellek her temizlendiğinde artar; temizlikten önce başlamış istekler sonucunu yazmaz */
+let generation = 0;
+const keyOf = (artist: string, title: string, duration?: number | null) =>
+  [artist.toLowerCase(), title.toLowerCase(), duration ? String(Math.round(duration)) : ''].join('\u0000');
 
 export function invalidateLibraryMatch(): void {
+  generation++;
   cache.clear();
   listeners.forEach((l) => l());
 }
 
-async function fetchMissing(items: Array<{ artist: string; title: string }>): Promise<void> {
-  const missing = items.filter((i) => !cache.has(keyOf(i.artist, i.title)));
+async function fetchMissing(items: MatchItem[]): Promise<void> {
+  const gen = generation;
+  const missing = items.filter((i) => !cache.has(keyOf(i.artist, i.title, i.duration)));
   for (let i = 0; i < missing.length; i += 500) {
-    const chunk = missing.slice(i, i + 500);
+    const chunk = missing.slice(i, i + 500).map((m) => ({ artist: m.artist, title: m.title, duration: m.duration ?? null }));
     const { ids } = await api.matchLibrary(chunk);
-    chunk.forEach((it, j) => cache.set(keyOf(it.artist, it.title), ids[j] ?? null));
+    if (gen !== generation) return;
+    chunk.forEach((it, j) => cache.set(keyOf(it.artist, it.title, it.duration), ids[j] ?? null));
   }
 }
 
-/** Verilen şarkılar için kütüphane kimliği bulucu: `idFor(artist, title)` → kimlik ya da null */
-export function useLibraryMatch(items: Array<{ artist: string; title: string }>): (artist: string, title: string) => string | null {
+/** Verilen şarkılar için kütüphane kimliği bulucu: `idFor(artist, title, duration)` → kimlik ya da null */
+export function useLibraryMatch(items: MatchItem[]): (artist: string, title: string, duration?: number | null) => string | null {
   const [tick, setTick] = useState(0);
   const { stats } = useQueue();
-  const signature = useMemo(() => items.map((i) => keyOf(i.artist, i.title)).join('\n'), [items]);
+  const signature = useMemo(() => items.map((i) => keyOf(i.artist, i.title, i.duration)).join('\n'), [items]);
 
   useEffect(() => {
     const l = () => setTick((n) => n + 1);
@@ -53,13 +62,16 @@ export function useLibraryMatch(items: Array<{ artist: string; title: string }>)
     return () => {
       alive = false;
     };
-    // items içeriği signature ile izlenir
+    // items içeriği signature ile izlenir; önbellek temizlenince (tick) eksikler yeniden sorulur
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, cache.size === 0]);
 
   // Sonuç gelince (tick) değişir; arada sabit kalır ki useMemo bağımlılıkları her çizimde bozulmasın
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useCallback((artist: string, title: string) => cache.get(keyOf(artist, title)) ?? null, [tick]);
+  return useCallback(
+    (artist: string, title: string, duration?: number | null) => cache.get(keyOf(artist, title, duration)) ?? null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tick],
+  );
 }
 
 /** Kütüphanedeki dosyayı tam uzunlukta çalan oynatıcı parçası */

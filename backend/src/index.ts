@@ -14,8 +14,8 @@ async function main(): Promise<void> {
   ]);
 
   const app = createApp();
-  const server = app.listen(env.PORT, () => {
-    logger.info(`API hazır → http://localhost:${env.PORT}/api (ortam: ${env.NODE_ENV})`);
+  const server = app.listen(env.PORT, env.HOST, () => {
+    logger.info(`API hazır → http://${env.HOST}:${env.PORT}/api (ortam: ${env.NODE_ENV})`);
   });
   jobsService.restore();
   jobsService.startSweeper();

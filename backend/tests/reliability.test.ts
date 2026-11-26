@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { errorInfo, JobsService } from '../src/services/jobs.service.js';
 import { classifyDownloadFailure, isTransientFailure, suggestsYtDlpUpdate } from '../src/utils/download-errors.js';
 import { JsonStore, writeJsonAtomic } from '../src/utils/json-store.js';
+import { parseSha256Sums } from '../src/utils/sha256sums.js';
+import { songKey } from '../src/services/library/song-key.js';
 
 describe('classifyDownloadFailure', () => {
   it('yt-dlp hata satırlarını anlamlı kodlara çevirir', () => {
@@ -63,6 +65,54 @@ describe('Kalıcı indirme kuyruğu', () => {
     // Kaybolan iş kimliği toplu işten düşer
     expect(snap.batches[0]).toMatchObject({ id: 'b1', total: 1, failed: 1, status: 'failed' });
     expect(snap.state.paused).toBe(false);
+  });
+
+  it('temizlik başarısız işleri bir hafta tutar (yeniden denenebilsinler)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fs-queue-'));
+    writeFileSync(
+      join(dir, 'queue.json'),
+      JSON.stringify({
+        jobs: [
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            url: 'https://www.deezer.com/track/2',
+            format: 'mp3',
+            options: {},
+            status: 'failed',
+            error: { code: 'CONNECTION_ERROR', message: 'x', status: 502 },
+            metadata: null,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        batches: [],
+      }),
+    );
+    const jobs = new JobsService();
+    jobs.restore(dir);
+    expect(await jobs.sweep(Date.now() + 3 * 60 * 60_000)).toBe(0);
+    expect(jobs.snapshot().stats.failed).toBe(1);
+    expect(await jobs.sweep(Date.now() + 8 * 24 * 60 * 60_000)).toBe(1);
+    expect(jobs.snapshot().jobs).toHaveLength(0);
+  });
+});
+
+describe('parseSha256Sums', () => {
+  const h = 'a'.repeat(64);
+  it('metin ve ikili kip satırlarını okur', () => {
+    expect(parseSha256Sums(`${h} *FlacSync-1.7.0.exe
+`, 'FlacSync-1.7.0.exe')).toBe(h);
+    expect(parseSha256Sums(`${h.toUpperCase()}  FlacSync-1.7.0.exe
+`, 'FlacSync-1.7.0.exe')).toBe(h);
+    expect(parseSha256Sums(`${h} *latest.yml`, 'FlacSync-1.7.0.exe')).toBeNull();
+    expect(parseSha256Sums('bozuk satır', 'x')).toBeNull();
+  });
+});
+
+describe('songKey', () => {
+  it('Türkçe noktasız ı ve büyük İ farkını yok sayar', () => {
+    expect(songKey('Duman', 'KIRMIZI')).toBe(songKey('duman', 'Kırmızı'));
+    expect(songKey('Duman', 'Kirmizi')).toBe(songKey('DUMAN', 'Kırmızı (Remastered)'));
+    expect(songKey('Sezen Aksu', 'İstanbul')).toBe(songKey('sezen aksu', 'istanbul'));
   });
 });
 

@@ -127,8 +127,18 @@ export async function updateYtDlpDir(targetDir: string, tempDir: string): Promis
   const marker = existsSync(markerPath) ? readFileSync(markerPath, 'utf8') : null;
   rmSync(old, { recursive: true, force: true });
   renameSync(targetDir, old);
-  renameSync(next, targetDir);
-  rmSync(old, { recursive: true, force: true });
+  try {
+    renameSync(next, targetDir);
+  } catch (err) {
+    // Yeni klasör yerine konamadıysa eskisi geri alınır: yt-dlp hiç yokken kalınmaz
+    renameSync(old, targetDir);
+    throw err;
+  }
+  try {
+    rmSync(old, { recursive: true, force: true });
+  } catch {
+    // kilitli kalan eski dosyalar bir sonraki güncellemede silinir
+  }
   if (marker !== null) writeFileSync(markerPath, marker, 'utf8');
   return { updated: true, from: current, to: installed };
 }

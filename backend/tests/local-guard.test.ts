@@ -25,7 +25,10 @@ describe('guardReason', () => {
   it('uygulamanın kendi isteklerine izin verir', () => {
     expect(guardReason({ ...local, method: 'GET' }, [])).toBeNull();
     expect(guardReason({ ...local, method: 'POST', origin: 'http://127.0.0.1:47821', secFetchSite: 'same-origin' }, [])).toBeNull();
-    expect(guardReason({ method: 'POST', host: 'localhost:4000', origin: 'http://localhost:5173' }, [])).toBeNull();
+    // Geliştirme: Vite (5173) → API (4000), CORS_ORIGIN ile izinli
+    expect(guardReason({ method: 'POST', host: 'localhost:4000', origin: 'http://localhost:5173' }, ['localhost:5173'])).toBeNull();
+    // Telefona gönderme sunucusu: köken = Host
+    expect(guardReason({ method: 'POST', host: '192.168.1.20:47822', origin: 'http://192.168.1.20:47822' }, [])).toBeNull();
     // Origin'siz istemciler (curl, Electron ana süreç) yerelden gelir
     expect(guardReason({ ...local, method: 'DELETE' }, [])).toBeNull();
   });
@@ -36,6 +39,10 @@ describe('guardReason', () => {
     expect(guardReason({ ...local, method: 'POST', referer: 'https://evil.example/x' }, [])).toBe('origin');
     // <img src="…/api/download?url=…"> gibi çapraz site GET'ler de
     expect(guardReason({ ...local, method: 'GET', secFetchSite: 'cross-site' }, [])).toBe('cross-site');
+    // localhost'un başka portundaki sayfa: tarayıcıya göre "same-site", ama FlacSync değil
+    expect(guardReason({ ...local, method: 'GET', secFetchSite: 'same-site' }, [])).toBe('cross-site');
+    expect(guardReason({ ...local, method: 'POST', origin: 'http://localhost:3000' }, [])).toBe('origin');
+    expect(guardReason({ ...local, method: 'DELETE', origin: 'http://127.0.0.1:8080' }, [])).toBe('origin');
   });
 
   it('DNS rebinding ile gelen istekleri (yabancı Host) engeller', () => {

@@ -95,6 +95,9 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 /** Aynı anda çalışan yt-dlp süreci sayısını sınırlar (her süreç ~100 MB RAM). */
 const queue = new PQueue({ concurrency: env.YTDLP_CONCURRENCY });
 
+/** Arama / eşleştirme için çalışan ya da sırada bekleyen yt-dlp çağrısı sayısı */
+export const ytDlpBusy = (): number => queue.pending + queue.size;
+
 /**
  * yt-dlp binary seçimi:
  *  1. YTDLP_PATH (masaüstü uygulaması bunu ayarlar)
@@ -114,15 +117,25 @@ const runner: ReturnType<typeof createYtDlp> = binaryPath
  */
 const EXTRACTOR_ARGS = 'youtube:skip=hls,dash,translated_subs';
 
+/**
+ * YouTube artık bazı adımlar için bir JavaScript çalışma ortamı ister; yoksa yt-dlp "eskimiş mod"da
+ * çalışır ve bazı formatlar eksik kalabilir. Ayrı bir Node/Deno kurdurmak yerine, uygulamayı çalıştıran
+ * Node kullanılır: masaüstünde Electron'un kendisi (ELECTRON_RUN_AS_NODE ile Node gibi davranır),
+ * geliştirmede node.exe. YTDLP_JS_RUNTIME ile değiştirilebilir ("deno", "node:C:\yol\node.exe" …).
+ */
+const JS_RUNTIME = env.YTDLP_JS_RUNTIME ?? `node:${process.execPath}`;
+const CHILD_ENV: Record<string, string> | undefined = process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : undefined;
+
 /** Ortak bayraklar (cookies vb.) eklenmiş ham yt-dlp süreci — indirme için. */
 export function ytDlpProcess(url: string, flags: YtDlpFlags, options: { timeout?: number } = {}) {
   const allFlags: YtDlpFlags = {
     noWarnings: true,
     extractorArgs: EXTRACTOR_ARGS,
+    jsRuntimes: JS_RUNTIME,
     ...(env.YTDLP_COOKIES_FILE ? { cookies: env.YTDLP_COOKIES_FILE } : {}),
     ...flags,
   };
-  return runner.exec(url, allFlags, options);
+  return runner.exec(url, allFlags, CHILD_ENV ? { ...options, env: CHILD_ENV } : options);
 }
 
 /**

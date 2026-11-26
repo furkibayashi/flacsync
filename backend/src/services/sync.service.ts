@@ -6,7 +6,6 @@ import { logger } from '../utils/logger.js';
 import type { OutputFormat } from './downloader.service.js';
 import { jobsService } from './jobs.service.js';
 import { libraryService } from './library.service.js';
-import { songKey } from './library/song-key.js';
 import { metadataService } from './metadata.service.js';
 import { playlistService } from './playlist.service.js';
 
@@ -178,7 +177,12 @@ export class SyncService {
       const failures = (w.failures ??= {});
       const stillPending = (w.pending ?? []).filter((p) => {
         const job = jobsService.get(p.jobId);
-        const active = job !== null && job.status !== 'failed' && job.status !== 'cancelled';
+        // Kullanıcı iptal ettiyse istemiyor demektir: bir daha indirilmez
+        if (job?.status === 'cancelled') {
+          known.add(p.url);
+          return false;
+        }
+        const active = job !== null && job.status !== 'failed';
         if (!active) {
           // Hiç bulunamayan şarkı her kontrolde sonsuza dek denenmesin: 3 denemeden sonra bırakılır
           failures[p.url] = (failures[p.url] ?? 0) + 1;
@@ -190,11 +194,11 @@ export class SyncService {
       const fresh = c.tracks.filter((t) => !known.has(t.url) && !pendingUrls.has(t.url));
 
       // Kütüphanede zaten olanlar: indirme yok, listeye eklenir
-      const library = libraryService.keyIndex();
+
       const inLibrary: string[] = [];
       const alreadyHave: string[] = [];
       const toDownload = fresh.filter((t) => {
-        const hit = library.get(songKey(t.artist, t.title));
+        const hit = libraryService.find(t.artist, t.title, t.duration);
         if (hit) {
           inLibrary.push(hit);
           alreadyHave.push(t.url);

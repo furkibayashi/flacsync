@@ -82,6 +82,8 @@ const MAX_SCAN_DEPTH = 4;
 const MAX_TRACKS = 20_000;
 const WRITE_DELAY_MS = 800;
 const PENDING_TTL_MS = 6 * 60 * 60_000;
+/** "Kütüphanede var" eşleşmesinde izin verilen süre farkı (saniye) */
+const MATCH_TOLERANCE_S = 4;
 
 const trackId = (path: string) => createHash('sha1').update(resolve(path).toLowerCase()).digest('hex').slice(0, 16);
 
@@ -496,28 +498,44 @@ export class LibraryService {
     setTimeout(() => this.measureMissing(), 10_000).unref();
   }
 
-  private keyCache: Map<string, string> | null = null;
+  private keyCache: Map<string, Array<{ id: string; duration: number | null }>> | null = null;
 
   /**
    * "sanatçı|başlık" → şarkı kimliği. Arama sonuçlarında / albümlerde "kütüphanende var" göstermek
    * ve liste senkronunda tekrar indirmemek için. Kütüphane değişince yeniden kurulur.
    */
-  keyIndex(): Map<string, string> {
+  private keyIndex(): Map<string, Array<{ id: string; duration: number | null }>> {
     if (!this.keyCache) {
-      const map = new Map<string, string>();
-      for (const t of this.tracks.values()) map.set(songKey(t.artist, t.title), t.id);
+      const map = new Map<string, Array<{ id: string; duration: number | null }>>();
+      for (const t of this.tracks.values()) {
+        const key = songKey(t.artist, t.title);
+        const list = map.get(key);
+        const entry = { id: t.id, duration: t.duration };
+        if (list) list.push(entry);
+        else map.set(key, [entry]);
+      }
       this.keyCache = map;
     }
     return this.keyCache;
   }
 
+  /**
+   * Aynı şarkı kütüphanede var mı? Sanatçı + başlık eşleşmeli; iki tarafın da süresi biliniyorsa
+   * en fazla 4 sn fark olmalı. Böylece aynı sanatçının farklı albümlerdeki
+   * "Intro"su ya da "Outro"su "zaten var" sayılmaz.
+   */
+  find(artist: string, title: string, duration?: number | null): string | null {
+    const candidates = this.keyIndex().get(songKey(artist, title));
+    if (!candidates) return null;
+    const hit = candidates.find(
+      (c) => this.filePath(c.id) && (!duration || !c.duration || Math.abs(c.duration - duration) <= MATCH_TOLERANCE_S),
+    );
+    return hit?.id ?? null;
+  }
+
   /** Verilen şarkılardan kütüphanede olanların kimlikleri (aynı sırayla, yoksa null) */
-  match(items: Array<{ artist: string; title: string }>): Array<string | null> {
-    const index = this.keyIndex();
-    return items.map((i) => {
-      const id = index.get(songKey(i.artist, i.title));
-      return id && this.filePath(id) ? id : null;
-    });
+  match(items: Array<{ artist: string; title: string; duration?: number | null }>): Array<string | null> {
+    return items.map((i) => this.find(i.artist, i.title, i.duration));
   }
 
   private scheduleWrite(): void {

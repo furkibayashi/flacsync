@@ -9,6 +9,7 @@
 //
 // Yerel deneme için: FLACSYNC_UPDATE_FEED=http://127.0.0.1:8080 (latest.yml + kurulum dosyası)
 // ve FLACSYNC_RELEASE_API=http://127.0.0.1:8080/release.json (portable).
+import { parseSha256Sums } from '../../backend/src/utils/sha256sums.js';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
@@ -248,17 +249,17 @@ export class Updater {
       throw err;
     }
 
-    if (release.sumsUrl) {
-      const sums = await (await fetch(release.sumsUrl, { headers: { 'User-Agent': 'FlacSync-Updater' } })).text();
-      const expected = sums
-        .split(/\r?\n/)
-        .map((l) => l.trim().split(/\s+/))
-        .find(([, name]) => name === basename(new URL(release.exeUrl).pathname))?.[0];
-      const actual = hash.digest('hex');
-      if (!expected || expected.toLowerCase() !== actual) {
-        await rm(target, { force: true });
-        throw new Error('İndirilen dosyanın SHA-256 özeti tutmuyor; güncelleme iptal edildi');
-      }
+    // Özet dosyası olmayan sürüm kurulmaz (doğrulanamayan exe çalıştırılmaz)
+    if (!release.sumsUrl) {
+      await rm(target, { force: true });
+      throw new Error('Sürümde SHA256SUMS dosyası yok; güncelleme doğrulanamadı');
+    }
+    const sums = await (await fetch(release.sumsUrl, { headers: { 'User-Agent': 'FlacSync-Updater' } })).text();
+    const expected = parseSha256Sums(sums, basename(new URL(release.exeUrl).pathname));
+    const actual = hash.digest('hex');
+    if (!expected || expected !== actual) {
+      await rm(target, { force: true });
+      throw new Error('İndirilen dosyanın SHA-256 özeti tutmuyor; güncelleme iptal edildi');
     }
     this.portableFile = target;
     this.set({ status: 'downloaded', progress: 100 });

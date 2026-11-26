@@ -7,7 +7,8 @@
 //   npm install --ignore-scripts
 //   npm run setup:binaries
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, normalize, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
@@ -72,9 +73,28 @@ async function installYtDlpOnedir() {
   const zipPath = join(root, 'vendor', 'yt-dlp_win.zip');
   try {
     mkdirSync(join(root, 'vendor'), { recursive: true });
-    const res = await fetch('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_win.zip');
+    // En son sürümün etiketi bulunur; zip ve SHA2-256SUMS aynı etiketten indirilip doğrulanır
+    const latest = await fetch('https://github.com/yt-dlp/yt-dlp/releases/latest', { redirect: 'manual' });
+    const tag = /\/tag\/([^/?#]+)/.exec(latest.headers.get('location') ?? '')?.[1];
+    if (!tag) throw new Error('son sürüm etiketi bulunamadı');
+    const base = `https://github.com/yt-dlp/yt-dlp/releases/download/${tag}`;
+    const res = await fetch(`${base}/yt-dlp_win.zip`);
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     await pipeline(res.body, createWriteStream(zipPath));
+    const sums = await fetch(`${base}/SHA2-256SUMS`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`SUMS HTTP ${r.status}`))));
+    const expected = sums
+      .split(/\r?\n/)
+      .find((l) => /\syt-dlp_win\.zip$/.test(l))
+      ?.split(/\s+/)[0]
+      ?.toLowerCase();
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(zipPath)) hash.update(chunk);
+    const actual = hash.digest('hex');
+    if (!expected || expected !== actual) {
+      rmSync(zipPath, { force: true });
+      throw new Error(`SHA-256 uyuşmuyor (${tag})`);
+    }
+    process.stdout.write(`${tag}, SHA-256 doğrulandı… `);
     rmSync(target, { recursive: true, force: true });
     await extractZip(zipPath, target);
     rmSync(zipPath, { force: true });

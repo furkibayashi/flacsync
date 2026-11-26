@@ -71,7 +71,7 @@ export function ResultsList({
   const previews = useMemo<PlayerTrack[]>(
     () =>
       results.flatMap((r): PlayerTrack[] => {
-        const libId = ownedId(r.artist, r.title);
+        const libId = ownedId(r.artist, r.title, r.duration);
         if (libId) return [{ ...libraryPlayerTrack(libId, r), id: `search:${r.id}` }];
         if (!r.previewUrl) return [];
         return [
@@ -89,7 +89,7 @@ export function ResultsList({
       }),
     [results, ownedId],
   );
-  const canPlay = (r: SearchResult) => Boolean(r.previewUrl || ownedId(r.artist, r.title));
+  const canPlay = (r: SearchResult) => Boolean(r.previewUrl || ownedId(r.artist, r.title, r.duration));
   const playPreview = (r: SearchResult) => {
     const id = `search:${r.id}`;
     if (player.current?.id === id) return player.toggle();
@@ -171,7 +171,7 @@ export function ResultsList({
                   className={clsx('flex max-w-full items-center gap-2 text-left font-medium', selected ? 'text-amber' : 'text-paper group-hover:text-paper')}
                 >
                   <span className="truncate">{r.title}</span>
-                  {ownedId(r.artist, r.title) && <InLibraryBadge compact />}
+                  {ownedId(r.artist, r.title, r.duration) && <InLibraryBadge compact />}
                 </button>
                 <span className="block truncate text-sm text-dust">
                   <ArtistLinks names={r.artist} />

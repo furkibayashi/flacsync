@@ -153,6 +153,8 @@ const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [8_000, 30_000];
 /** Bu kadar iş art arda (yeniden denemelere rağmen) geçici hatayla biterse kuyruk durur */
 const PAUSE_AFTER_FAILURES = 5;
+/** Başarısız işlerin "yeniden dene" için tutulduğu süre */
+const FAILED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -351,7 +353,7 @@ export class JobsService {
     this.consecutiveFailures = 0;
     if (this.state.paused) {
       this.state = { paused: false, reason: null, pausedAt: null };
-      this.queue.start();
+      if (this.holds === 0) this.queue.start();
       this.events.emit('state', this.queueState);
       logger.info({ retried }, 'İndirme kuyruğu sürdürüldü');
     }
@@ -367,6 +369,29 @@ export class JobsService {
   onReplaced(listener: (oldId: string, newId: string) => void): () => void {
     this.events.on('replaced', listener);
     return () => this.events.off('replaced', listener);
+  }
+
+  private holds = 0;
+
+  /**
+   * Bakım için yeni işlerin başlamasını geçici olarak durdurur (ör. yt-dlp klasörü değiştirilirken);
+   * kullanıcıya "duraklatıldı" gösterilmez. Dönen fonksiyon bırakır.
+   */
+  hold(): () => void {
+    this.holds++;
+    this.queue.pause();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds--;
+      if (this.holds === 0 && !this.state.paused) this.queue.start();
+    };
+  }
+
+  /** Şu an çalışan (yeniden denemeyi bekleyenler dahil) iş sayısı */
+  get running(): number {
+    return this.queue.pending;
   }
 
   private pause(reason: string): void {
@@ -585,16 +610,37 @@ export class JobsService {
 
   async sweep(now = Date.now()): Promise<number> {
     const maxAge = env.FILE_RETENTION_MINUTES * 60_000;
+    const old = (job: InternalJob) => isTerminalStatus(job.status) && now - Date.parse(job.updatedAt) >= maxAge;
+    // Toplu işin parçaları ancak hepsi bitip eskiyince birlikte silinir; yoksa yarım kalan
+    // bir albümün ilerlemesi geriye gider ve "bitti" durumuna hiç ulaşamaz.
+    const batchDone = new Map<string, boolean>();
+    const batchSweepable = (id: string) => {
+      let done = batchDone.get(id);
+      if (done === undefined) {
+        const batch = this.batches.get(id);
+        done = !batch || batch.jobIds.every((jid) => {
+          const j = this.jobs.get(jid);
+          return !j || j.status === 'failed' || old(j);
+        });
+        batchDone.set(id, done);
+      }
+      return done;
+    };
     let removed = 0;
     for (const job of this.jobs.values()) {
-      if (!isTerminalStatus(job.status) || now - Date.parse(job.updatedAt) < maxAge) continue;
+      // Başarısız işler yeniden denenebilsin diye bir hafta kalır (dosyaları yoktur)
+      if (job.status === 'failed' ? now - Date.parse(job.updatedAt) < FAILED_RETENTION_MS : !old(job)) continue;
+      if (job.batchId && !batchSweepable(job.batchId)) continue;
       this.jobs.delete(job.id);
       this.events.emit('removed', job.id);
       await downloaderService.remove(job.id).catch((err) => logger.warn({ err, id: job.id }, 'Dosya silinemedi'));
       removed++;
     }
     this.pruneBatches();
-    if (removed > 0) logger.info({ removed }, 'Süresi dolan indirmeler temizlendi');
+    if (removed > 0) {
+      logger.info({ removed }, 'Süresi dolan indirmeler temizlendi');
+      this.persist();
+    }
     return removed;
   }
 

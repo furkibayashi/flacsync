@@ -155,17 +155,17 @@ function groupArtists(tracks: LibraryTrack[]): ArtistGroup[] {
 /** Uzun listeyi parça parça gösterir: sona yaklaşınca bir parça daha eklenir */
 function useChunked<T>(list: T[], resetKey: string) {
   const [limit, setLimit] = useState(CHUNK);
-  const sentinel = useRef<HTMLDivElement>(null);
+  // Geri çağırımlı ref: görünüm değişip öğe yeniden takılınca gözlemci de yeniden kurulur
+  const [el, sentinel] = useState<HTMLDivElement | null>(null);
   useEffect(() => setLimit(CHUNK), [resetKey]);
   useEffect(() => {
-    const el = sentinel.current;
     if (!el || limit >= list.length) return;
     const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setLimit((l) => l + CHUNK), {
       rootMargin: '800px 0px',
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [limit, list.length]);
+  }, [el, limit, list.length]);
   return { visible: list.length > limit ? list.slice(0, limit) : list, more: limit < list.length, sentinel };
 }
 
@@ -204,7 +204,8 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const lastPicked = useRef<number | null>(null);
+  /** Shift ile aralık seçiminin başlangıcı: sıra değişse de doğru şarkı kalsın diye kimlik tutulur */
+  const lastPicked = useRef<string | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     return api
@@ -310,7 +311,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
     setSelected(new Set());
     setConfirmBulk(false);
     lastPicked.current = null;
-  }, [view, openAlbum, openArtistKey, query, genre]);
+  }, [view, openAlbum, openArtistKey, query, genre, sort]);
   useEffect(() => {
     if (!confirmBulk) return;
     const timer = setTimeout(() => setConfirmBulk(false), 6000);
@@ -319,7 +320,8 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
 
   const pick = (index: number, range: boolean) => {
     const id = list[index]!.id;
-    const anchor = lastPicked.current;
+    const anchorIndex = lastPicked.current ? list.findIndex((x) => x.id === lastPicked.current) : -1;
+    const anchor = anchorIndex >= 0 ? anchorIndex : null;
     setSelected((prev) => {
       const next = new Set(prev);
       if (range && anchor !== null) {
@@ -330,7 +332,7 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
       else next.add(id);
       return next;
     });
-    lastPicked.current = index;
+    lastPicked.current = id;
     setConfirmBulk(false);
   };
 

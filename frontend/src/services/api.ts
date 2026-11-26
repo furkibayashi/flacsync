@@ -202,7 +202,7 @@ export const api = {
     request<WatchedPlaylist>(`/sync/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   syncRemove: (id: string) => request<{ removed: boolean }>(`/sync/${id}`, { method: 'DELETE' }),
 
-  matchLibrary: (items: Array<{ artist: string; title: string }>) =>
+  matchLibrary: (items: Array<{ artist: string; title: string; duration?: number | null }>) =>
     request<{ ids: Array<string | null> }>('/library/match', post({ items })),
 
   findArtist: (name: string, signal?: AbortSignal) =>
