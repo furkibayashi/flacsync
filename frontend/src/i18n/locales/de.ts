@@ -610,6 +610,23 @@ const de: Record<TranslationKey, string> = {
   'libset.removeConfirm': "Entfernen?",
   'error.TRACK_NOT_FOUND': "Dieser Song ist nicht mehr in der Bibliothek.",
   'error.VIDEO_UNAVAILABLE': "Dieses Video lässt sich nicht öffnen; es wurde evtl. entfernt oder ist in deiner Region gesperrt.",
+  'player.like': "Zu Lieblingssongs hinzufügen",
+  'player.unlike': "Aus Lieblingssongs entfernen",
+  'player.likeFailed': "Lieblingssongs konnten nicht aktualisiert werden",
+  'playlist.smart.liked': "Lieblingssongs",
+  'playlist.noLikes': "Noch keine Lieblingssongs. Tippe auf das Herz neben einem Song.",
+  'queue.batchRetry': "Fehlgeschlagene erneut versuchen ({count})",
+  'queue.batchCancel': "Alle abbrechen",
+  'queue.pause': "Pausieren",
+  'queue.pausedHint.USER': "Du hast die Downloads pausiert. Laufende sind fertig; der Rest geht weiter, wenn du fortsetzt.",
+  'error.DOWNLOAD_TRUNCATED': "Der Download wurde unterbrochen (Verbindung abgebrochen). Er wird automatisch wiederholt.",
+  'lyrics.offset': "Liedtext-Timing",
+  'lyrics.offsetHint': "Verschiebe den Text, wenn er vor oder hinter dem Ton läuft; wird für diesen Song gemerkt.",
+  'lyrics.offsetEarlier': "Text 0,25 s früher anzeigen",
+  'lyrics.offsetLater': "Text 0,25 s später anzeigen",
+  'lyrics.offsetReset': "Timing zurücksetzen",
+  'settings.autoplay': "Autoplay",
+  'settings.autoplayHint': "Wenn die Warteschlange endet, laufen ähnliche Songs aus deiner Mediathek weiter (Künstler, Genre, Epoche).",
 };
 
 export default de;

@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "productName": "FlacSync",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "description": "FlacSync masaüstü uygulaması",
   "author": "FlacSync contributors",

@@ -24,9 +24,10 @@ import { useI18n } from '../i18n/I18nProvider';
 import { lockBackground } from '../lib/inert';
 import { usePlayer } from '../state/PlayerProvider';
 import { AddToPlaylist } from './AddToPlaylist';
+import { LikeButton } from './LikeButton';
 import { QueueList } from './QueueList';
 import { ArtistLinks } from './ArtistLinks';
-import { LyricsLines, SaveLyricsButton, useTrackLyrics } from './LyricsPanel';
+import { LyricsLines, LyricsOffsetControl, SaveLyricsButton, useTrackLyrics } from './LyricsPanel';
 import { RangeSlider, SeekBar } from './PlayerBar';
 import { SleepTimerButton } from './SleepTimer';
 
@@ -212,6 +213,7 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
               <RangeSlider value={p.muted ? 0 : p.volume} max={1} step={0.01} onChange={p.setVolume} label={t('player.volume')} className="w-32" />
               <span className="mx-2 h-5 w-px bg-white/15" />
               <SleepTimerButton side="top" />
+              <LikeButton libraryId={track.libraryId} size="lg" />
               {track.libraryId && <AddToPlaylist trackIds={[track.libraryId]} side="top" />}
               {track.kind === 'preview' && track.sourceUrl && (
                 <button
@@ -246,7 +248,14 @@ export function NowPlaying({ onClose, onDownload }: { onClose: () => void; onDow
                 {k === 'lyrics' ? t('lyrics.title') : t('player.queueTitle', { count: p.queue.length })}
               </button>
             ))}
-            <span className="ml-auto">{tab === 'lyrics' && <SaveLyricsButton lyricsState={lyricsState} />}</span>
+            <span className="ml-auto flex items-center gap-2">
+              {tab === 'lyrics' && (
+                <>
+                  <LyricsOffsetControl lyricsState={lyricsState} tone="dark" />
+                  <SaveLyricsButton lyricsState={lyricsState} />
+                </>
+              )}
+            </span>
           </div>
           {tab === 'lyrics' ? (
             <LyricsLines state={lyricsState.state} size="lg" />

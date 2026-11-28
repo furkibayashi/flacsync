@@ -1,27 +1,34 @@
 import clsx from 'clsx';
-import { ArrowLeft, Clock, Download, FolderOpen, Flame, ListMusic, Play, Plus, Shuffle, Sparkles, Trash2, ListEnd } from 'lucide-react';
+import { ArrowLeft, Clock, Download, FolderOpen, Flame, Heart, ListMusic, Play, Plus, Shuffle, Sparkles, Trash2, ListEnd } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { api, toUiError } from '../services/api';
 import { toast } from '../state/toast';
 import { usePlayer } from '../state/PlayerProvider';
 import { usePlaylists } from '../state/playlists';
+import { useLikedSet } from '../state/likes';
 import type { LibraryTrack, Playlist } from '../types/api';
 import { LibraryCover, LibrarySongRow, toPlayerTrack } from './LibrarySongRow';
 import { SyncedPlaylists } from './SyncedPlaylists';
 
-export type SmartKey = 'most-played' | 'recent' | 'unplayed';
+export type SmartKey = 'liked' | 'most-played' | 'recent' | 'unplayed';
 export type ListRef = { kind: 'smart'; key: SmartKey } | { kind: 'user'; id: string };
 
 const SMART: Array<{ key: SmartKey; icon: typeof Flame; gradient: string }> = [
+  { key: 'liked', icon: Heart, gradient: 'from-danger/80 to-amber/60' },
   { key: 'most-played', icon: Flame, gradient: 'from-amber/80 to-danger/70' },
   { key: 'recent', icon: Sparkles, gradient: 'from-flac/80 to-amber/60' },
   { key: 'unplayed', icon: Clock, gradient: 'from-ok/70 to-flac/70' },
 ];
 
 /** Akıllı listeler kütüphaneden otomatik oluşur */
-export function smartTracks(key: SmartKey, tracks: LibraryTrack[]): LibraryTrack[] {
+export function smartTracks(key: SmartKey, tracks: LibraryTrack[], liked?: ReadonlySet<string>): LibraryTrack[] {
   switch (key) {
+    case 'liked': {
+      // Canlı beğeni durumu (kalbe basınca hemen); yoksa kütüphanedeki likedAt
+      const isLiked = (t: LibraryTrack) => (liked ? liked.has(t.id) : Boolean(t.likedAt));
+      return tracks.filter(isLiked).sort((a, b) => (b.likedAt ?? '').localeCompare(a.likedAt ?? ''));
+    }
     case 'most-played':
       return tracks
         .filter((t) => t.playCount > 0)
@@ -70,6 +77,7 @@ function Tile({ cover, title, subtitle, onClick }: { cover: ReactNode; title: st
 export function PlaylistsGrid({ tracks, onOpen }: { tracks: LibraryTrack[]; onOpen: (ref: ListRef) => void }) {
   const { t } = useI18n();
   const { playlists, reload } = usePlaylists();
+  const liked = useLikedSet();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
 
@@ -92,7 +100,7 @@ export function PlaylistsGrid({ tracks, onOpen }: { tracks: LibraryTrack[]; onOp
         <p className="mb-4 text-sm text-dust">{t('playlist.smartHint')}</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-5">
           {SMART.map(({ key, icon: Icon, gradient }) => {
-            const list = smartTracks(key, tracks);
+            const list = smartTracks(key, tracks, liked);
             return (
               <Tile
                 key={key}
@@ -187,15 +195,16 @@ export function PlaylistDetail({
   const [name, setName] = useState('');
   const [exported, setExported] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const liked = useLikedSet();
 
   const playlist: Playlist | null = listRef.kind === 'user' ? playlists.find((p) => p.id === listRef.id) ?? null : null;
   const byId = useMemo(() => new Map(tracks.map((x) => [x.id, x])), [tracks]);
   const list = useMemo(
     () =>
       listRef.kind === 'smart'
-        ? smartTracks(listRef.key, tracks)
+        ? smartTracks(listRef.key, tracks, liked)
         : (playlist?.trackIds ?? []).map((id) => byId.get(id)).filter((x): x is LibraryTrack => Boolean(x)),
-    [listRef, tracks, playlist, byId],
+    [listRef, tracks, playlist, byId, liked],
   );
   const title = listRef.kind === 'smart' ? t(`playlist.smart.${listRef.key}` as 'playlist.smart.recent') : playlist?.name ?? '';
   const totalSec = list.reduce((s, x) => s + (x.duration ?? 0), 0);
@@ -378,7 +387,11 @@ export function PlaylistDetail({
 
       {list.length === 0 ? (
         <p className="py-10 text-center text-dust">
-          {listRef.kind === 'smart' && listRef.key === 'most-played' ? t('playlist.noPlays') : t('playlist.empty')}
+          {listRef.kind === 'smart' && listRef.key === 'most-played'
+              ? t('playlist.noPlays')
+              : listRef.kind === 'smart' && listRef.key === 'liked'
+                ? t('playlist.noLikes')
+                : t('playlist.empty')}
         </p>
       ) : (
         <ol className="space-y-0.5">

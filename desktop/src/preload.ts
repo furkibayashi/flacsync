@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('flacsync', {
   onNowPlaying: (listener: (state: unknown) => void) => subscribe('flacsync:now-playing', listener),
   setMiniPlayer: (open: boolean) => ipcRenderer.send('flacsync:mini', open),
   showMain: () => ipcRenderer.send('flacsync:show-main'),
-  setDesktopPrefs: (prefs: { closeToTray?: boolean; clipboardWatch?: boolean }) => ipcRenderer.send('flacsync:desktop-prefs', prefs),
+  setDesktopPrefs: (prefs: { closeToTray?: boolean; clipboardWatch?: boolean; lang?: string }) => ipcRenderer.send('flacsync:desktop-prefs', prefs),
   onClipboardLink: (listener: (url: string) => void) => subscribe('flacsync:clipboard-link', listener),
   /** Wi-Fi ile telefona gönderme: true aç, false kapat, undefined durum */
   lan: (enabled?: boolean) => ipcRenderer.invoke('flacsync:lan', enabled),

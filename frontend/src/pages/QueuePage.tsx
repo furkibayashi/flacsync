@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { FolderOpen, Inbox, ListMusic, Trash2, RotateCcw } from 'lucide-react';
+import { Ban, FolderOpen, Inbox, ListMusic, PauseCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { JobRow } from '../components/JobRow';
 import { QueuePausedBanner } from '../components/QueuePausedBanner';
@@ -26,7 +26,15 @@ interface Group {
 
 function BatchHeader({ batch }: { batch: Batch }) {
   const { t } = useI18n();
+  const { cancelBatch, retryBatch } = useQueue();
+  const [busy, setBusy] = useState(false);
   const running = batch.status === 'running';
+  const retryable = batch.failed + batch.cancelled;
+  const act = async (fn: (id: string) => Promise<void>) => {
+    setBusy(true);
+    await fn(batch.id);
+    setBusy(false);
+  };
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-rule px-3 py-3">
       <ListMusic className="size-5 shrink-0 text-amber" />
@@ -47,6 +55,28 @@ function BatchHeader({ batch }: { batch: Batch }) {
           <span className="text-xs text-dust tabular-nums">{batch.progress}%</span>
         </span>
       )}
+      {retryable > 0 && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void act(retryBatch)}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-amber ring-1 ring-amber/40 transition hover:bg-amber/10 disabled:opacity-50"
+        >
+          <RotateCcw className="size-3.5" />
+          {t('queue.batchRetry', { count: retryable })}
+        </button>
+      )}
+      {running && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void act(cancelBatch)}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-dust ring-1 ring-rule transition hover:text-danger hover:ring-danger/40 disabled:opacity-50"
+        >
+          <Ban className="size-3.5" />
+          {t('queue.batchCancel')}
+        </button>
+      )}
       {isDesktopApp && batch.folder && (
         <button
           type="button"
@@ -63,7 +93,7 @@ function BatchHeader({ batch }: { batch: Batch }) {
 
 export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }) {
   const { t } = useI18n();
-  const { jobs, batches, order, stats, clearFinished, resume } = useQueue();
+  const { jobs, batches, order, stats, clearFinished, resume, pause, state } = useQueue();
   const [filter, setFilter] = useState<Filter>('all');
 
   const groups = useMemo<Group[]>(() => {
@@ -80,8 +110,11 @@ export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }
       map.set(key, group);
     }
     // Albüm içi sıra: parça sırası; gruplar: en son hareket önce
+    // (sıra dizini bir kez kurulur: büyük listelerde karşılaştırıcıda indexOf yavaşlatıyordu)
     for (const g of map.values()) {
-      if (g.batch) g.jobs.sort((a, b) => g.batch!.jobIds.indexOf(a.id) - g.batch!.jobIds.indexOf(b.id));
+      if (!g.batch) continue;
+      const pos = new Map(g.batch.jobIds.map((id, i) => [id, i]));
+      g.jobs.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
     }
     return [...map.values()].sort((a, b) => b.latest.localeCompare(a.latest));
   }, [jobs, batches, order, filter]);
@@ -103,6 +136,16 @@ export function QueuePage({ onNavigate }: { onNavigate: (route: Route) => void }
           <p className="mt-2 max-w-[60ch] text-dust">{t('queue.subtitle')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+        {!state.paused && stats.active + stats.queued > 0 && (
+          <button
+            type="button"
+            onClick={() => void pause()}
+            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-paper ring-1 ring-rule transition hover:bg-panel"
+          >
+            <PauseCircle className="size-4" />
+            {t('queue.pause')}
+          </button>
+        )}
         {stats.failed > 0 && (
           <button
             type="button"

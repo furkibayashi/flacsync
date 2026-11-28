@@ -26,6 +26,12 @@ interface QueueValue {
   /** Art arda hatalarda kuyruk duraklar */
   state: QueueState;
   resume: (retryFailed: boolean) => Promise<void>;
+  /** Elle duraklat: çalışanlar biter, yenileri "Sürdür"e kadar başlamaz */
+  pause: () => Promise<void>;
+  /** Albüm / liste: bitmemiş tüm parçaları iptal et */
+  cancelBatch: (id: string) => Promise<void>;
+  /** Albüm / liste: başarısız ve iptal edilmiş parçaları yeniden dene */
+  retryBatch: (id: string) => Promise<void>;
 }
 
 const RUNNING: QueueState = { paused: false, reason: null, pausedAt: null };
@@ -187,6 +193,13 @@ export function QueueProvider({ children }: { children: ReactNode }) {
     [run],
   );
 
+  const pause = useCallback(async () => {
+    const r = await run(() => api.pauseQueue());
+    if (r) setState(r.state);
+  }, [run]);
+  const cancelBatch = useCallback(async (id: string) => void (await run(() => api.cancelBatch(id))), [run]);
+  const retryBatch = useCallback(async (id: string) => void (await run(() => api.retryBatch(id))), [run]);
+
   const value = useMemo<QueueValue>(() => {
     const order = Object.values(jobs)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -214,8 +227,11 @@ export function QueueProvider({ children }: { children: ReactNode }) {
       clearError: () => setError(null),
       state,
       resume,
+      pause,
+      cancelBatch,
+      retryBatch,
     };
-  }, [jobs, batches, connected, error, enqueue, enqueueBatch, cancel, retry, clearFinished, state, resume]);
+  }, [jobs, batches, connected, error, enqueue, enqueueBatch, cancel, retry, clearFinished, state, resume, pause, cancelBatch, retryBatch]);
 
   return <QueueContext.Provider value={value}>{children}</QueueContext.Provider>;
 }

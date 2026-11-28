@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, join, parse, relative } from 'node:path';
 import dotenv from 'dotenv';
 import { setupCompanion } from './companion.js';
+import { dt, onDesktopLangChange, setDesktopLang, toDesktopLang } from './i18n.js';
 import { LanShare } from './lan.js';
 import { Updater } from './updater.js';
 import { downloadHealth } from '../../backend/src/utils/download-errors.js';
@@ -206,6 +207,7 @@ async function startServer(): Promise<{ server: Server; url: string }> {
   const server = await listen(PREFERRED_PORT).catch(() => listen(0));
   // Önceki oturumda yarım kalan indirmeler kaldığı yerden devam eder
   jobsService.restore();
+  void jobsService.sweepOrphans().catch(() => undefined);
   jobsService.startSweeper();
   watchYtDlpHealth(jobsService);
 
@@ -292,7 +294,7 @@ function notifySaved(file: string): void {
     const first = files[0]!;
     const dir = parse(first).dir;
     const n = new Notification({
-      title: files.length === 1 ? 'Kaydedildi' : `${files.length} dosya kaydedildi`,
+      title: files.length === 1 ? dt('saved') : dt('savedMany', { n: files.length }),
       body: files.length === 1 ? `${parse(first).base}\n${dir}` : dir,
       silent: true,
     });
@@ -406,7 +408,7 @@ function setupIpc(): void {
     if (!file || !existsSync(file)) return null;
     const ext = parse(file).ext.replace('.', '');
     const options = {
-      title: 'Farklı kaydet',
+      title: dt('saveAs'),
       defaultPath: file,
       filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
     };
@@ -443,7 +445,7 @@ function setupIpc(): void {
   // --- Klasörler (Ayarlar → Kütüphane) ---
   /** Kütüphaneye eklenecek bir müzik klasörü seçtirir; yolu döndürür */
   ipcMain.handle('flacsync:pick-folder', async () => {
-    const options = { properties: ['openDirectory' as const], title: 'Müzik klasörü seç' };
+    const options = { properties: ['openDirectory' as const], title: dt('pickMusicFolder') };
     const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
@@ -451,7 +453,7 @@ function setupIpc(): void {
   ipcMain.handle('flacsync:choose-save-dir', async () => {
     const options = {
       properties: ['openDirectory' as const, 'createDirectory' as const],
-      title: 'İndirme klasörü',
+      title: dt('downloadFolder'),
       defaultPath: paths.saveDir,
     };
     const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
@@ -599,8 +601,8 @@ function watchYtDlpHealth(jobs: JobsServiceLike): void {
           new Notification({
             title: APP_NAME,
             body: retried
-              ? `yt-dlp güncellendi (${result.to}); ${retried} indirme yeniden deneniyor.`
-              : `yt-dlp güncellendi (${result.to}).`,
+              ? dt('ytdlpUpdatedRetry', { v: result.to, n: retried })
+              : dt('ytdlpUpdated', { v: result.to }),
           }).show();
         }
       }
@@ -637,10 +639,10 @@ function showAbout(): void {
 function buildMenu(): void {
   const template: MenuItemConstructorOptions[] = [
     {
-      label: 'Dosya',
+      label: dt('file'),
       submenu: [
         {
-          label: 'Kaydedilenler klasörünü aç',
+          label: dt('openSaved'),
           accelerator: 'CmdOrCtrl+O',
           click: () => {
             mkdirSync(paths.saveDir, { recursive: true });
@@ -648,47 +650,47 @@ function buildMenu(): void {
           },
         },
         { type: 'separator' },
-        { label: 'Ayarlar ve API anahtarları…', click: () => void shell.openPath(paths.settingsFile) },
-        { label: 'Yeniden başlat (ayarları uygula)', click: () => relaunch() },
+        { label: dt('settingsFile'), click: () => void shell.openPath(paths.settingsFile) },
+        { label: dt('restart'), click: () => relaunch() },
         { type: 'separator' },
-        { role: 'quit', label: 'Çıkış' },
+        { role: 'quit', label: dt('quit') },
       ],
     },
     {
-      label: 'Araçlar',
+      label: dt('tools'),
       submenu: [
         {
-          label: 'Güncellemeleri denetle…',
+          label: dt('checkUpdates'),
           click: () => {
             mainWindow?.webContents.send('flacsync:navigate', 'settings');
             void updater?.check();
           },
         },
-        { label: 'Ayarlar', accelerator: 'CmdOrCtrl+,', click: () => mainWindow?.webContents.send('flacsync:navigate', 'settings') },
+        { label: dt('settings'), accelerator: 'CmdOrCtrl+,', click: () => mainWindow?.webContents.send('flacsync:navigate', 'settings') },
         { type: 'separator' },
-        { label: "yt-dlp'yi güncelle", click: () => void updateYtDlp() },
-        { label: 'Log dosyasını aç', click: () => void shell.openPath(paths.logFile) },
+        { label: dt('updateYtdlp'), click: () => void updateYtDlp() },
+        { label: dt('openLog'), click: () => void shell.openPath(paths.logFile) },
         { type: 'separator' },
-        { role: 'reload', label: 'Sayfayı yenile' },
-        { role: 'toggleDevTools', label: 'Geliştirici araçları' },
+        { role: 'reload', label: dt('reload') },
+        { role: 'toggleDevTools', label: dt('devtools') },
       ],
     },
     {
-      label: 'Yardım',
+      label: dt('help'),
       submenu: [
-        { label: 'Lisanslar ve üçüncü taraf bildirimleri', click: () => void shell.openPath(paths.licenses) },
+        { label: dt('licenses'), click: () => void shell.openPath(paths.licenses) },
         { type: 'separator' },
-        { label: `${APP_NAME} ${app.getVersion()} hakkında`, click: showAbout },
+        { label: dt('about', { app: APP_NAME, v: app.getVersion() }), click: showAbout },
       ],
     },
     {
-      label: 'Görünüm',
+      label: dt('view'),
       submenu: [
-        { role: 'zoomIn', label: 'Yakınlaştır' },
-        { role: 'zoomOut', label: 'Uzaklaştır' },
-        { role: 'resetZoom', label: 'Varsayılan boyut' },
+        { role: 'zoomIn', label: dt('zoomIn') },
+        { role: 'zoomOut', label: dt('zoomOut') },
+        { role: 'resetZoom', label: dt('resetZoom') },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: 'Tam ekran' },
+        { role: 'togglefullscreen', label: dt('fullscreen') },
       ],
     },
   ];
@@ -720,7 +722,10 @@ if (!app.requestSingleInstanceLock()) {
       loadSavedIndex();
       const started = await startServer();
       server = started.server;
+      // Arayüz dilini bildirene kadar işletim sisteminin dili; değişince menü yeniden kurulur
+      setDesktopLang(toDesktopLang(app.getLocale()));
       buildMenu();
+      onDesktopLangChange(() => buildMenu());
       setupDownloads();
       updater = new Updater(() => mainWindow, () => app.quit());
       setupIpc();

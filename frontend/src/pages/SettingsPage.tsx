@@ -35,6 +35,7 @@ import {
   useCloseToTraySetting,
   useDesignStyle,
   useTheme,
+  useAutoplaySetting,
   useVolumeSetting,
   type DesignStyle,
   type Theme,
@@ -394,6 +395,7 @@ export function SettingsPage() {
   const [theme, setTheme] = useTheme();
   const [designStyle, setDesignStyle] = useDesignStyle();
   const [volume, setVolume] = useVolumeSetting();
+  const [autoplay, setAutoplay] = useAutoplaySetting();
   const [format, setFormat] = usePreferredFormat();
   const [info, setInfo] = useState<{ version: string; saveDir: string } | null>(null);
   const desktop = window.flacsync;
@@ -474,6 +476,9 @@ export function SettingsPage() {
           <SlidersHorizontal className="mt-0.5 size-4 shrink-0 text-fade" />
           {t('settings.shortcuts')}
         </p>
+        <Row label={t('settings.autoplay')} hint={t('settings.autoplayHint')}>
+          <Toggle checked={autoplay} onChange={setAutoplay} label={t('settings.autoplay')} />
+        </Row>
         <AudioSettings Row={Row} Toggle={Toggle} />
       </Section>
 

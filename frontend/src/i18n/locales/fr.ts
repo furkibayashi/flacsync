@@ -610,6 +610,23 @@ const fr: Record<TranslationKey, string> = {
   'libset.removeConfirm': "Retirer ?",
   'error.TRACK_NOT_FOUND': "Ce morceau n’est plus dans la bibliothèque.",
   'error.VIDEO_UNAVAILABLE': "Impossible d’ouvrir cette vidéo ; elle a peut-être été supprimée ou est bloquée dans ta région.",
+  'player.like': "Ajouter aux titres likés",
+  'player.unlike': "Retirer des titres likés",
+  'player.likeFailed': "Impossible de mettre à jour les titres likés",
+  'playlist.smart.liked': "Titres likés",
+  'playlist.noLikes': "Aucun titre liké pour l’instant. Touche le cœur à côté d’un titre.",
+  'queue.batchRetry': "Réessayer les échecs ({count})",
+  'queue.batchCancel': "Tout annuler",
+  'queue.pause': "Mettre en pause",
+  'queue.pausedHint.USER': "Tu as mis les téléchargements en pause. Ceux en cours sont terminés ; le reste reprend quand tu relances.",
+  'error.DOWNLOAD_TRUNCATED': "Le téléchargement a été interrompu (connexion coupée). Il sera relancé automatiquement.",
+  'lyrics.offset': "Synchronisation des paroles",
+  'lyrics.offsetHint': "Décale les paroles si elles sont en avance ou en retard sur le son ; mémorisé pour ce titre.",
+  'lyrics.offsetEarlier': "Afficher les paroles 0,25 s plus tôt",
+  'lyrics.offsetLater': "Afficher les paroles 0,25 s plus tard",
+  'lyrics.offsetReset': "Réinitialiser la synchronisation",
+  'settings.autoplay': "Lecture automatique",
+  'settings.autoplayHint': "Quand la file se termine, continue avec des titres similaires de ta bibliothèque (artiste, genre, époque).",
 };
 
 export default fr;

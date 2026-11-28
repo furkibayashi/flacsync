@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import NodeID3 from 'node-id3';
 import sanitizeFilename from 'sanitize-filename';
 import { env } from '../config/env.js';
+import { readTags } from '../utils/audio-tags.js';
 import { runFfmpeg } from '../utils/ffmpeg.js';
 import { logger } from '../utils/logger.js';
 import { ytDlpProcess } from '../utils/ytdlp.js';
@@ -63,13 +64,26 @@ export interface DownloadedFile {
 
 export class DownloadError extends Error {
   readonly statusCode = 502;
-  constructor(message: string, options?: { cause?: unknown }) {
+  /** Belirli bir durum (ör. DOWNLOAD_TRUNCATED); yoksa yt-dlp çıktısından sınıflandırılır */
+  readonly code?: string;
+  constructor(message: string, options?: { cause?: unknown; code?: string }) {
     super(message, options);
     this.name = 'DownloadError';
+    if (options?.code) this.code = options.code;
   }
 }
 
+/**
+ * Çıktı, beklenen süreden belirgin biçimde kısa mı? (yarım kalmış indirme)
+ * Kısa parçalarda ve süre bilinmediğinde karar verilmez.
+ */
+export function isTruncated(actualSec: number | null, expectedSec: number | null | undefined): boolean {
+  if (!actualSec || !expectedSec || expectedSec < 30) return false;
+  return actualSec < expectedSec * 0.8;
+}
+
 const MIME: Record<OutputFormat, string> = { mp3: 'audio/mpeg', flac: 'audio/flac' };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const YTDLP_PROGRESS = /\[download\]\s+(\d+(?:\.\d+)?)%/;
 
 export function buildFileName(meta: TrackMetadata, format: OutputFormat, extras: TagExtras = {}): string {
@@ -151,8 +165,13 @@ export function buildVorbisArgs(meta: TrackMetadata, source: ResolvedSource, ext
  * yalnızca uyumluluk sağlar; bu bilgi dosyanın yorum etiketine de yazılır.
  */
 export class DownloaderService {
-  private readonly downloadDir = resolve(env.DOWNLOAD_DIR);
-  private readonly tempDir = resolve(env.TEMP_DIR);
+  private readonly downloadDir: string;
+  private readonly tempDir: string;
+
+  constructor(downloadDir = env.DOWNLOAD_DIR, tempDir = env.TEMP_DIR) {
+    this.downloadDir = resolve(downloadDir);
+    this.tempDir = resolve(tempDir);
+  }
 
   async download(req: DownloadRequest): Promise<DownloadedFile> {
     const { id, metadata, source, format, extras = {} } = req;
@@ -190,7 +209,9 @@ export class DownloaderService {
             })
           : Promise.resolve(null);
 
-      // 1) İndirme
+      // 1) İndirme. Önceki denemeden kalan (yarım) ses dosyası silinir: yt-dlp --no-part ile
+      // yarım dosya son adını taşır ve yeniden denemede "zaten indirilmiş" sanılıp kullanılırdı.
+      await this.removeAudio(id);
       report('downloading', 0);
       rawAudio = await this.fetchAudio(id, source, (f) => report('downloading', f), req.signal);
       report('downloading', 1);
@@ -213,6 +234,15 @@ export class DownloaderService {
       });
       report('converting', 1);
 
+      // Yarım kalmış kaynak: çıktı süresi beklenenden çok kısaysa kaydetme, yeniden denensin
+      const { duration: actual } = await readTags(outputPath);
+      if (isTruncated(actual, metadata.duration)) {
+        throw new DownloadError(
+          `İndirilen ses eksik (${actual} sn / beklenen ${metadata.duration} sn)`,
+          { code: 'DOWNLOAD_TRUNCATED' },
+        );
+      }
+
       // 3) Etiketleme (MP3)
       report('tagging', 0);
       if (format === 'mp3') {
@@ -233,6 +263,8 @@ export class DownloaderService {
     } finally {
       await Promise.all([
         rawAudio ? rm(rawAudio, { force: true }) : Promise.resolve(),
+        // Başarısız / iptal edilen indirmenin yarım ses dosyası da geçici klasörde kalmasın
+        this.removeAudio(id).catch(() => undefined),
         rm(coverPath, { force: true }),
       ]);
     }
@@ -323,6 +355,8 @@ export class DownloaderService {
         output: join(this.tempDir, `${id}.audio.%(ext)s`),
         newline: true,
         noPart: true,
+        // Aynı adda eski dosya varsa üzerine yaz (yarım dosyayı "indirilmiş" saymasın)
+        forceOverwrites: true,
         noMtime: true,
       },
       { timeout: env.DOWNLOAD_TIMEOUT_MS },
@@ -356,8 +390,30 @@ export class DownloaderService {
     return join(this.tempDir, file);
   }
 
+  /**
+   * Hiçbir işe ait olmayan artıkları siler: çıktı klasörleri (uygulama dosya saklama süresi
+   * dolmadan kapatıldıysa kalır) ve geçici klasördeki yarım ses / kapak / bilgi dosyaları.
+   * Açılışta, `keep` içindeki kimlikler (sırada bekleyen ya da başarısız işler) korunarak çağrılır.
+   */
+  async sweepOrphans(keep: Set<string>): Promise<number> {
+    let removed = 0;
+    const safeList = (dir: string) => readdir(dir).catch(() => [] as string[]);
+    for (const name of await safeList(this.downloadDir)) {
+      if (keep.has(name) || !UUID_RE.test(name)) continue;
+      await rm(join(this.downloadDir, name), { recursive: true, force: true }).catch(() => undefined);
+      removed++;
+    }
+    for (const name of await safeList(this.tempDir)) {
+      const m = /^([0-9a-f-]{36})\./i.exec(name);
+      if (!m || keep.has(m[1]!)) continue;
+      await rm(join(this.tempDir, name), { force: true }).catch(() => undefined);
+      removed++;
+    }
+    return removed;
+  }
+
   private async removeAudio(id: string): Promise<void> {
-    const files = (await readdir(this.tempDir)).filter((f) => f.startsWith(`${id}.audio.`));
+    const files = (await readdir(this.tempDir).catch(() => [] as string[])).filter((f) => f.startsWith(`${id}.audio.`));
     await Promise.all(files.map((f) => rm(join(this.tempDir, f), { force: true })));
   }
 }

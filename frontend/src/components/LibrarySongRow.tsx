@@ -4,28 +4,19 @@ import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { formatDuration } from '../lib/format';
 import { api } from '../services/api';
-import { usePlayer, type PlayerTrack } from '../state/PlayerProvider';
+import { usePlayer } from '../state/PlayerProvider';
 import type { LibraryTrack } from '../types/api';
 import { AddToPlaylist } from './AddToPlaylist';
+import { LikeButton } from './LikeButton';
 import { ArtistLinks } from './ArtistLinks';
 import { RowPlayButton } from './PlayButton';
 import { TagEditor } from './TagEditor';
 import { MenuItem, Popover } from './Popover';
 import { RematchDialog } from './RematchDialog';
 import { needsReview } from '../lib/match';
+import { toPlayerTrack } from '../lib/libraryTrack';
 
-export const toPlayerTrack = (t: LibraryTrack): PlayerTrack => ({
-  id: `lib:${t.id}`,
-  title: t.title,
-  artist: t.artist,
-  album: t.album,
-  coverUrl: api.libraryCoverUrl(t.id),
-  src: api.libraryStreamUrl(t.id),
-  kind: 'full',
-  duration: t.duration,
-  libraryId: t.id,
-  loudness: t.loudness ?? null,
-});
+export { toPlayerTrack };
 
 export function LibraryCover({ id, className }: { id: string; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -267,6 +258,7 @@ export function LibrarySongRow({
           <span className="hidden w-12 shrink-0 text-right text-sm text-fade tabular-nums sm:block">{formatDuration(track.duration)}</span>
         </>
       )}
+      <LikeButton libraryId={track.id} className="hidden sm:grid" />
       <RowPlayButton active={active} playing={active && playing} onClick={onPlay} />
       {/* Telefondan / tarayıcıdan açıldıysa: dosyayı bu cihaza indir */}
       {!window.flacsync && (

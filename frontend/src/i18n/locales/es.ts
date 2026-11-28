@@ -610,6 +610,23 @@ const es: Record<TranslationKey, string> = {
   'libset.removeConfirm': "¿Quitar?",
   'error.TRACK_NOT_FOUND': "Esa canción ya no está en la biblioteca.",
   'error.VIDEO_UNAVAILABLE': "No se puede abrir ese vídeo; puede haberse eliminado o estar bloqueado en tu región.",
+  'player.like': "Añadir a canciones que te gustan",
+  'player.unlike': "Quitar de canciones que te gustan",
+  'player.likeFailed': "No se pudieron actualizar las canciones que te gustan",
+  'playlist.smart.liked': "Canciones que te gustan",
+  'playlist.noLikes': "Aún no hay canciones que te gusten. Toca el corazón junto a una canción.",
+  'queue.batchRetry': "Reintentar fallidas ({count})",
+  'queue.batchCancel': "Cancelar todo",
+  'queue.pause': "Pausar",
+  'queue.pausedHint.USER': "Pausaste las descargas. Las que estaban en curso terminaron; el resto sigue al reanudar.",
+  'error.DOWNLOAD_TRUNCATED': "La descarga quedó incompleta (se cortó la conexión). Se reintentará automáticamente.",
+  'lyrics.offset': "Sincronía de la letra",
+  'lyrics.offsetHint': "Desplaza la letra si va por delante o por detrás del audio; se recuerda para esta canción.",
+  'lyrics.offsetEarlier': "Mostrar la letra 0,25 s antes",
+  'lyrics.offsetLater': "Mostrar la letra 0,25 s después",
+  'lyrics.offsetReset': "Restablecer sincronía",
+  'settings.autoplay': "Reproducción automática",
+  'settings.autoplayHint': "Cuando termina la cola, sigue con canciones parecidas de tu biblioteca (mismo artista, género, época).",
 };
 
 export default es;

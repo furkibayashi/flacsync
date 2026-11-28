@@ -125,6 +125,12 @@ export const api = {
   resumeQueue: (retryFailed: boolean) =>
     request<{ state: QueueState; retried: number }>('/queue/resume', post({ retryFailed })),
 
+  pauseQueue: () => request<{ state: QueueState }>('/queue/pause', post({})),
+
+  cancelBatch: (id: string) => request<{ cancelled: number }>(`/batch/${id}/cancel`, post({})),
+
+  retryBatch: (id: string) => request<{ retried: number }>(`/batch/${id}/retry`, post({})),
+
   history: (limit = 50, offset = 0) => request<HistoryResponse>(`/history?limit=${limit}&offset=${offset}`),
 
   removeHistory: (id: string) => request<{ removed: boolean }>(`/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -172,6 +178,12 @@ export const api = {
   genreFixStatus: () => request<GenreFixStatus>('/library/genres/fix'),
 
   markPlayed: (id: string) => request<{ ok: boolean }>(`/library/tracks/${id}/played`, post({})),
+
+  likedIds: () => request<{ ids: string[] }>('/library/liked'),
+
+  setLiked: (id: string, liked: boolean) => request<{ likedAt: string | null }>(`/library/tracks/${id}/like`, post({ liked })),
+
+  setLikedMany: (ids: string[], liked: boolean) => request<{ changed: number }>('/library/like', post({ ids, liked })),
 
   playlists: (signal?: AbortSignal) => request<{ playlists: Playlist[] }>('/playlists', { signal }),
 

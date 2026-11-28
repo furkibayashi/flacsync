@@ -144,6 +144,22 @@ apiRouter.post('/batch', (req, res) => {
   res.status(202).location(`${req.baseUrl}/batch/${batch.id}`).json(batch);
 });
 
+/** Albüm / liste indirmesinin bitmemiş tüm parçalarını iptal et */
+apiRouter.post('/batch/:id/cancel', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  const cancelled = jobsService.cancelBatch(id);
+  if (cancelled === null) throw new HttpError(404, 'BATCH_NOT_FOUND', 'Toplu indirme bulunamadı veya süresi doldu');
+  res.json({ cancelled });
+});
+
+/** Albüm / liste indirmesinin başarısız ya da iptal edilmiş parçalarını yeniden dene */
+apiRouter.post('/batch/:id/retry', (req, res) => {
+  const { id } = jobParams.parse(req.params);
+  const retried = jobsService.retryBatch(id);
+  if (retried === null) throw new HttpError(404, 'BATCH_NOT_FOUND', 'Toplu indirme bulunamadı veya süresi doldu');
+  res.json({ retried });
+});
+
 apiRouter.get('/batch/:id', (req, res) => {
   const { id } = jobParams.parse(req.params);
   const data = jobsService.getBatch(id);
@@ -276,11 +292,18 @@ apiRouter.get('/queue/events', (req, res) => {
   write('snapshot', jobsService.snapshot());
 });
 
-/** Duraklatılmış kuyruğu sürdür; retryFailed: başarısız indirmeleri de yeniden sıraya koy */
+/** Duraklatılmış kuyruğu sürdür; retryFailed: başarısız indirmeleri de yeniden sıraya koy (codes: yalnızca bu hata kodları) */
 apiRouter.post('/queue/resume', (req, res) => {
-  const { retryFailed } = z.object({ retryFailed: z.boolean().default(false) }).parse(req.body ?? {});
-  const retried = jobsService.resume({ retryFailed });
+  const { retryFailed, codes } = z
+    .object({ retryFailed: z.boolean().default(false), codes: z.array(z.string().max(64)).max(50).optional() })
+    .parse(req.body ?? {});
+  const retried = jobsService.resume({ retryFailed, codes });
   res.json({ state: jobsService.queueState, retried });
+});
+
+/** Kuyruğu elle duraklat (çalışan indirmeler biter, yenileri başlamaz) */
+apiRouter.post('/queue/pause', (_req, res) => {
+  res.json({ state: jobsService.pauseByUser() });
 });
 
 apiRouter.delete('/queue/finished', async (_req, res) => {
@@ -707,6 +730,28 @@ apiRouter.post('/playlists/:id/export', async (req, res) => {
 apiRouter.post('/library/tracks/:id/played', (req, res) => {
   const { id } = libraryParams.parse(req.params);
   res.json({ ok: libraryService.markPlayed(id) });
+});
+
+/** Sevilen şarkıların kimlikleri (oynatıcıdaki kalp için; tüm kütüphaneyi çekmeden) */
+apiRouter.get('/library/liked', (_req, res) => {
+  res.json({ ids: libraryService.likedIds() });
+});
+
+/** Sevilen şarkılar (kalp) */
+apiRouter.post('/library/tracks/:id/like', (req, res) => {
+  const { id } = libraryParams.parse(req.params);
+  const { liked } = z.object({ liked: z.boolean() }).parse(req.body ?? {});
+  const result = libraryService.setLiked(id, liked);
+  if (!result) throw new HttpError(404, 'TRACK_NOT_FOUND', 'Şarkı kütüphanede bulunamadı');
+  res.json(result);
+});
+
+/** Çoklu seçim: seçilen şarkıları sevilenlere ekle / çıkar */
+apiRouter.post('/library/like', (req, res) => {
+  const { ids, liked } = z
+    .object({ ids: z.array(z.string().min(1).max(64)).min(1).max(20_000), liked: z.boolean() })
+    .parse(req.body ?? {});
+  res.json({ changed: libraryService.setLikedMany(ids, liked) });
 });
 
 // --- Takip edilen sanatçılar -------------------------------------------------

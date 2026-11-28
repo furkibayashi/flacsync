@@ -64,7 +64,7 @@ declare global {
       onNowPlaying(listener: (state: DesktopNowPlaying | null) => void): () => void;
       setMiniPlayer(open: boolean): void;
       showMain(): void;
-      setDesktopPrefs(prefs: { closeToTray?: boolean; clipboardWatch?: boolean }): void;
+      setDesktopPrefs(prefs: { closeToTray?: boolean; clipboardWatch?: boolean; lang?: string }): void;
       onClipboardLink(listener: (url: string) => void): () => void;
       lan(enabled?: boolean): Promise<unknown>;
     };

@@ -23,6 +23,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import { ArtistLinks } from './ArtistLinks';
 import { AddToPlaylist } from './AddToPlaylist';
+import { LikeButton } from './LikeButton';
 import { QueueList } from './QueueList';
 import { LyricsPanel } from './LyricsPanel';
 import { NowPlaying } from './NowPlaying';
@@ -209,6 +210,7 @@ export function PlayerBar({ onDownload }: { onDownload: (url: string) => void })
             </span>
             {p.error && <span className="block text-xs text-danger">{t('player.error')}</span>}
           </span>
+          <LikeButton libraryId={track.libraryId} size="sm" className="hidden sm:grid" />
         </div>
 
         {/* Kontroller */}

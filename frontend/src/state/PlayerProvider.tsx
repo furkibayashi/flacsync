@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../services/api';
 import { AudioEngine, EQ_PRESETS } from './audioEngine';
-import { useCrossfadeSetting, useEqCustomSetting, useEqPresetSetting, useNormalizeSetting, useVolumeSetting } from './settings';
+import { toPlayerTrack } from '../lib/libraryTrack';
+import { pickRadio } from '../lib/radio';
+import { useAutoplaySetting, useCrossfadeSetting, useEqCustomSetting, useEqPresetSetting, useNormalizeSetting, useVolumeSetting } from './settings';
 
 /** Oynatıcıda çalınabilen her şey: 30 sn önizlemeler ve kütüphanedeki tam dosyalar. */
 export interface PlayerTrack {
@@ -441,6 +443,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     reportedRef.current = current.id;
     void api.markPlayed(id).catch(() => undefined);
   }, [current, progress.time]);
+
+  // --- Otomatik çalma: sıranın son şarkısı başlayınca kütüphaneden benzerleri eklenir -----------
+  // (son şarkı çalarken eklenir ki crossfade / boşluksuz geçiş de çalışsın)
+  const [autoplay] = useAutoplaySetting();
+  const radioSeedRef = useRef<string | null>(null);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  useEffect(() => {
+    if (!autoplay || repeat !== 'off' || !current?.libraryId || current.kind !== 'full') return;
+    if (index !== queue.length - 1 || radioSeedRef.current === current.id) return;
+    const seedId = current.id;
+    radioSeedRef.current = seedId;
+    void api
+      .library()
+      .then(({ tracks }) => {
+        const q = queueRef.current;
+        // Bu arada sıra değiştiyse (kullanıcı başka liste açtı) ekleme
+        if (q[q.length - 1]?.id !== seedId) return;
+        const byId = new Map(tracks.map((t) => [t.id, t]));
+        const seeds = q
+          .slice(-3)
+          .map((x) => (x.libraryId ? byId.get(x.libraryId) : undefined))
+          .filter((x): x is NonNullable<typeof x> => Boolean(x));
+        if (!seeds.length) return;
+        const exclude = new Set(q.map((x) => x.libraryId).filter((x): x is string => Boolean(x)));
+        const picks = pickRadio(seeds, tracks, exclude, 10).map(toPlayerTrack);
+        if (!picks.length) return;
+        setQueue((cur) => (cur[cur.length - 1]?.id === seedId ? [...cur, ...picks] : cur));
+        setOriginal((o) => [...o, ...picks]);
+      })
+      .catch(() => undefined);
+  }, [autoplay, repeat, current, index, queue.length]);
 
   const close = useCallback(() => {
     setQueue([]);

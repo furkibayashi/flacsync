@@ -308,6 +308,16 @@ export class JobsService {
     return this.store?.flush() ?? Promise.resolve();
   }
 
+  /**
+   * Önceki oturumdan sahipsiz kalan indirme klasörlerini ve geçici dosyaları siler
+   * (tamamlanan işler diske yazılmadığı için kapanışta klasörleri unutulurdu). restore() sonrası çağrılır.
+   */
+  async sweepOrphans(): Promise<number> {
+    const removed = await downloaderService.sweepOrphans(new Set(this.jobs.keys()));
+    if (removed) logger.info({ removed }, 'Önceki oturumdan kalan indirme artıkları temizlendi');
+    return removed;
+  }
+
   private addFinished(sj: StoredJob): void {
     const job: InternalJob = {
       id: sj.id,
@@ -399,7 +409,8 @@ export class JobsService {
     this.queue.pause();
     this.state = { paused: true, reason, pausedAt: new Date().toISOString() };
     this.events.emit('state', this.queueState);
-    logger.warn({ reason }, 'Art arda başarısız indirmeler: kuyruk duraklatıldı');
+    if (reason === 'USER') logger.info('İndirme kuyruğu kullanıcı tarafından duraklatıldı');
+    else logger.warn({ reason }, 'Art arda başarısız indirmeler: kuyruk duraklatıldı');
   }
 
   // --- Tek işler -----------------------------------------------------------
@@ -588,6 +599,32 @@ export class JobsService {
     return this.batchJobs(batch)
       .filter((j) => j.status === 'completed' && j.filePath && j.file)
       .map((j) => ({ path: j.filePath!, name: j.file!.name }));
+  }
+
+  /** Toplu işin bitmemiş tüm parçalarını iptal eder; iptal edilen sayıyı döndürür. Toplu iş yoksa null. */
+  cancelBatch(id: string): number | null {
+    const batch = this.batches.get(id);
+    if (!batch) return null;
+    let cancelled = 0;
+    for (const job of this.batchJobs(batch)) if (this.cancel(job.id)) cancelled++;
+    return cancelled;
+  }
+
+  /** Toplu işin başarısız ya da iptal edilmiş parçalarını yeniden sıraya koyar. Toplu iş yoksa null. */
+  retryBatch(id: string): number | null {
+    const batch = this.batches.get(id);
+    if (!batch) return null;
+    let retried = 0;
+    for (const job of this.batchJobs(batch)) {
+      if ((job.status === 'failed' || job.status === 'cancelled') && this.retry(job.id)) retried++;
+    }
+    return retried;
+  }
+
+  /** Kullanıcı kuyruğu elle duraklatır: çalışanlar biter, sıradakiler "Sürdür"e kadar bekler */
+  pauseByUser(): QueueState {
+    this.pause('USER');
+    return this.queueState;
   }
 
   isBatchTerminal(batch: PublicBatch): boolean {

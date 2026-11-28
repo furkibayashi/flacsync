@@ -45,6 +45,8 @@ export interface LibraryTrack {
   /** Uygulamada kaç kez dinlendi (≥30 sn) */
   playCount: number;
   lastPlayedAt: string | null;
+  /** Sevilen şarkı (kalp) — işaretlendiği zaman; değilse null */
+  likedAt: string | null;
   /** Ölçülen yükseklik (LUFS); ses eşitleme için. Henüz ölçülmediyse null */
   loudness?: number | null;
   /** Kütüphane klasörüne göre yol (arayüzde gösterilir) */
@@ -225,7 +227,7 @@ export class LibraryService {
       if (t.genre) genreCount.set(t.genre, (genreCount.get(t.genre) ?? 0) + 1);
     }
     return {
-      tracks: tracks.map(({ path: _p, mtimeMs: _m, rgWritten: _r, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null, loudness: pub.loudness ?? null })),
+      tracks: tracks.map(({ path: _p, mtimeMs: _m, rgWritten: _r, ...pub }) => ({ ...pub, playCount: pub.playCount ?? 0, lastPlayedAt: pub.lastPlayedAt ?? null, likedAt: pub.likedAt ?? null, loudness: pub.loudness ?? null })),
       genres: [...genreCount.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
       totalBytes,
       dir: this.dir,
@@ -393,8 +395,43 @@ export class LibraryService {
     if (!t) return false;
     t.playCount = (t.playCount ?? 0) + 1;
     t.lastPlayedAt = new Date().toISOString();
-    this.scheduleWrite();
+    // Dinlenme sayısı eşleştirmeyi etkilemez: dizin yeniden kurulmasın (büyük kütüphanede pahalı)
+    this.scheduleWrite(false);
     return true;
+  }
+
+  /** Şarkıyı sevilenlere ekler / çıkarır. Şarkı yoksa null, varsa güncel likedAt */
+  setLiked(id: string, liked: boolean): { likedAt: string | null } | null {
+    const t = this.tracks.get(id);
+    if (!t) return null;
+    const next = liked ? t.likedAt ?? new Date().toISOString() : null;
+    if (next !== (t.likedAt ?? null)) {
+      t.likedAt = next;
+      // Yalnızca diske yazılır; eşleştirme dizini (keyCache) değişmez
+      this.scheduleWrite(false);
+    }
+    return { likedAt: next };
+  }
+
+  /** Sevilen şarkıların kimlikleri (en son sevilen önce) */
+  likedIds(): string[] {
+    return [...this.tracks.values()]
+      .filter((t) => t.likedAt)
+      .sort((a, b) => b.likedAt!.localeCompare(a.likedAt!))
+      .map((t) => t.id);
+  }
+
+  /** Birden çok şarkıyı sevilenlere ekler / çıkarır; değişen sayısını döndürür */
+  setLikedMany(ids: string[], liked: boolean): number {
+    let changed = 0;
+    for (const id of ids) {
+      const t = this.tracks.get(id);
+      if (!t || Boolean(t.likedAt) === liked) continue;
+      t.likedAt = liked ? new Date().toISOString() : null;
+      changed++;
+    }
+    if (changed) this.scheduleWrite(false);
+    return changed;
   }
 
   private readonly addedListeners = new Set<(jobId: string, trackId: string) => void>();
@@ -732,6 +769,7 @@ export class LibraryService {
       addedAt: addedAt ?? this.tracks.get(id)?.addedAt ?? new Date().toISOString(),
       playCount: this.tracks.get(id)?.playCount ?? 0,
       lastPlayedAt: this.tracks.get(id)?.lastPlayedAt ?? null,
+      likedAt: this.tracks.get(id)?.likedAt ?? null,
       relativePath: this.relativePath(path),
       source: pending?.source ?? this.tracks.get(id)?.source ?? sourceFromComment(first(tags, 'comment', 'description')),
     };
@@ -812,8 +850,9 @@ export class LibraryService {
     return items.map((i) => this.find(i.artist, i.title, i.duration));
   }
 
-  private scheduleWrite(): void {
-    this.keyCache = null;
+  /** invalidateIndex=false: yalnızca dinlenme / beğeni gibi eşleştirmeyi etkilemeyen alanlar değişti */
+  private scheduleWrite(invalidateIndex = true): void {
+    if (invalidateIndex) this.keyCache = null;
     if (this.writeTimer) clearTimeout(this.writeTimer);
     this.writeTimer = setTimeout(() => {
       this.writeTimer = null;

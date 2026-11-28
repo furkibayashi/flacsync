@@ -1,12 +1,17 @@
 import clsx from 'clsx';
-import { Check, Loader2, MicVocal, Save, X } from 'lucide-react';
+import { Check, Loader2, MicVocal, Minus, Plus, Save, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '../i18n/I18nProvider';
 import { activeLine, parseLrc } from '../lib/lrc';
 import { api, isAbort } from '../services/api';
-import { usePlayer, usePlayerProgress } from '../state/PlayerProvider';
+import { usePlayer, usePlayerProgress, type PlayerTrack } from '../state/PlayerProvider';
+import { LYRICS_OFFSET_STEP_MS, setLyricsOffset, useLyricsOffset } from '../state/lyricsOffset';
 import type { Lyrics } from '../types/api';
+
+/** Söz kaydırmasının saklandığı anahtar: kütüphane şarkısıysa kimliği, değilse sanatçı + ad */
+export const lyricsKey = (track: PlayerTrack | null | undefined): string | undefined =>
+  track ? track.libraryId ?? `${track.artist}|${track.title}`.toLowerCase() : undefined;
 
 type LoadState = { status: 'loading' } | { status: 'ready'; lyrics: Lyrics | null } | { status: 'error' };
 
@@ -161,7 +166,11 @@ export function LyricsLines({ state, size = 'md' }: { state: LoadState; size?: '
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const lyrics = state.status === 'ready' ? state.lyrics : null;
-  const lines = useMemo(() => (lyrics?.synced ? parseLrc(lyrics.synced) : []), [lyrics]);
+  const offset = useLyricsOffset(lyricsKey(current));
+  const lines = useMemo(
+    () => (lyrics?.synced ? parseLrc(lyrics.synced).map((l) => ({ ...l, timeMs: Math.max(0, l.timeMs + offset) })) : []),
+    [lyrics, offset],
+  );
   // Önizleme 30 sn'lik bir kesit: zamanlar tam şarkıya göre olduğu için akış yalnızca tam şarkıda
   const synced = lines.length > 0 && current?.kind === 'full';
   const active = synced ? activeLine(lines, time * 1000 + LEAD_MS) : -1;
@@ -255,6 +264,47 @@ export function LyricsLines({ state, size = 'md' }: { state: LoadState; size?: '
   );
 }
 
+/**
+ * Söz zamanlaması düzeltme: sözler sesten önce / sonra geliyorsa ±0,25 sn kaydırılır.
+ * Yalnızca zaman damgalı sözlerde ve tam şarkıda gösterilir; şarkı için bu cihazda hatırlanır.
+ */
+export function LyricsOffsetControl({ lyricsState, tone = 'panel' }: { lyricsState: ReturnType<typeof useTrackLyrics>; tone?: 'panel' | 'dark' }) {
+  const { t } = useI18n();
+  const { current } = usePlayer();
+  const key = lyricsKey(current);
+  const offset = useLyricsOffset(key);
+  if (!key || current?.kind !== 'full' || !lyricsState.lyrics?.synced) return null;
+  const step = (delta: number) => setLyricsOffset(key, offset + delta);
+  const btn = clsx(
+    'grid size-7 place-items-center rounded-md transition',
+    tone === 'dark' ? 'text-paper/70 hover:bg-white/10 hover:text-paper' : 'text-dust hover:bg-raised hover:text-paper',
+  );
+  const seconds = (offset / 1000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' });
+  return (
+    <span role="group" aria-label={t('lyrics.offset')} title={t('lyrics.offsetHint')} className="inline-flex items-center gap-0.5">
+      <button type="button" onClick={() => step(-LYRICS_OFFSET_STEP_MS)} aria-label={t('lyrics.offsetEarlier')} title={t('lyrics.offsetEarlier')} className={btn}>
+        <Minus className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => key && setLyricsOffset(key, 0)}
+        disabled={offset === 0}
+        aria-label={t('lyrics.offsetReset')}
+        title={offset === 0 ? t('lyrics.offset') : t('lyrics.offsetReset')}
+        className={clsx(
+          'min-w-12 rounded-md px-1 text-center text-xs font-semibold tabular-nums disabled:cursor-default',
+          offset === 0 ? (tone === 'dark' ? 'text-paper/50' : 'text-fade') : 'text-amber',
+        )}
+      >
+        {offset === 0 ? '±0' : `${seconds} s`}
+      </button>
+      <button type="button" onClick={() => step(LYRICS_OFFSET_STEP_MS)} aria-label={t('lyrics.offsetLater')} title={t('lyrics.offsetLater')} className={btn}>
+        <Plus className="size-3.5" />
+      </button>
+    </span>
+  );
+}
+
 /** Kütüphane şarkısının LRCLib sözlerini dosyaya gömme düğmesi */
 export function SaveLyricsButton({ lyricsState }: { lyricsState: ReturnType<typeof useTrackLyrics> }) {
   const { t } = useI18n();
@@ -304,6 +354,7 @@ export function LyricsPanel({ onClose }: { onClose: () => void }) {
             {lyrics?.source === 'embedded' ? t('lyrics.fromFile') : lyrics ? t('lyrics.fromLrclib') : current.artist}
           </span>
         </span>
+        <LyricsOffsetControl lyricsState={lyricsState} />
         <SaveLyricsButton lyricsState={lyricsState} />
         <button
           type="button"

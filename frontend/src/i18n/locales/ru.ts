@@ -610,6 +610,23 @@ const ru: Record<TranslationKey, string> = {
   'libset.removeConfirm': "Убрать?",
   'error.TRACK_NOT_FOUND': "Этой песни больше нет в библиотеке.",
   'error.VIDEO_UNAVAILABLE': "Это видео не открывается: возможно, оно удалено или недоступно в вашем регионе.",
+  'player.like': "Добавить в любимые",
+  'player.unlike': "Убрать из любимых",
+  'player.likeFailed': "Не удалось обновить любимые треки",
+  'playlist.smart.liked': "Любимые треки",
+  'playlist.noLikes': "Любимых треков пока нет. Нажмите на сердечко рядом с треком.",
+  'queue.batchRetry': "Повторить неудачные ({count})",
+  'queue.batchCancel': "Отменить все",
+  'queue.pause': "Пауза",
+  'queue.pausedHint.USER': "Вы приостановили загрузки. Текущие завершились; остальные продолжатся после возобновления.",
+  'error.DOWNLOAD_TRUNCATED': "Загрузка прервалась (обрыв соединения). Она будет повторена автоматически.",
+  'lyrics.offset': "Синхронизация текста",
+  'lyrics.offsetHint': "Сдвиньте текст, если он опережает звук или отстаёт; запоминается для этого трека.",
+  'lyrics.offsetEarlier': "Показывать текст на 0,25 с раньше",
+  'lyrics.offsetLater': "Показывать текст на 0,25 с позже",
+  'lyrics.offsetReset': "Сбросить синхронизацию",
+  'settings.autoplay': "Автовоспроизведение",
+  'settings.autoplayHint': "Когда очередь закончится, играть похожие треки из вашей библиотеки (тот же исполнитель, жанр, эпоха).",
 };
 
 export default ru;

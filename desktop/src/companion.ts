@@ -3,6 +3,7 @@
 // Çalan şarkının durumu ana pencereden gelir ('flacsync:now-playing'); tepsi menüsü ve mini oynatıcı
 // komutları ('flacsync:player-command') ana pencereye iletilir. Mini oynatıcı kendisi ses çalmaz.
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, Notification, screen, Tray } from 'electron';
+import { dt, onDesktopLangChange, setDesktopLang } from './i18n.js';
 
 export interface NowPlaying {
   title: string;
@@ -62,27 +63,28 @@ export function setupCompanion(options: {
   const updateTray = () => {
     if (!tray) return;
     const np = nowPlaying;
-    tray.setToolTip(np ? `${np.title} — ${np.artist}${np.playing ? '' : ' (duraklatıldı)'}` : appName);
+    tray.setToolTip(np ? `${np.title} — ${np.artist}${np.playing ? '' : ` (${dt('paused')})`}` : appName);
     tray.setContextMenu(
       Menu.buildFromTemplate([
         ...(np
           ? [
               { label: `${np.title} — ${np.artist}`.slice(0, 60), enabled: false },
               { type: 'separator' as const },
-              { label: np.playing ? 'Duraklat' : 'Çal', click: () => command('toggle') },
-              { label: 'Sonraki', click: () => command('next') },
-              { label: 'Önceki', click: () => command('prev') },
+              { label: np.playing ? dt('pause') : dt('play'), click: () => command('toggle') },
+              { label: dt('next'), click: () => command('next') },
+              { label: dt('prev'), click: () => command('prev') },
               { type: 'separator' as const },
             ]
           : []),
-        { label: `${appName}'i göster`, click: showMain },
-        { label: mini ? 'Mini oynatıcıyı kapat' : 'Mini oynatıcı', click: () => (mini ? mini.close() : openMini()) },
+        { label: dt('showApp', { app: appName }), click: showMain },
+        { label: mini ? dt('miniClose') : dt('mini'), click: () => (mini ? mini.close() : openMini()) },
         { type: 'separator' },
-        { label: 'Çıkış', click: () => app.quit() },
+        { label: dt('quit'), click: () => app.quit() },
       ]),
     );
   };
   updateTray();
+  onDesktopLangChange(updateTray);
 
   // Pencere kapatılınca tepside çalmaya devam et
   const attachCloseToTray = (win: BrowserWindow) => {
@@ -94,7 +96,7 @@ export function setupCompanion(options: {
         toldAboutTray = true;
         new Notification({
           title: appName,
-          body: 'Tepside çalışmaya devam ediyor. Tamamen kapatmak için tepsi simgesine sağ tıklayıp Çıkış’ı seçin.',
+          body: dt('trayHint'),
         }).show();
       }
     });
@@ -163,7 +165,7 @@ export function setupCompanion(options: {
     if (win.isVisible() && win.isFocused()) {
       win.webContents.send('flacsync:clipboard-link', link);
     } else if (Notification.isSupported()) {
-      const n = new Notification({ title: 'Müzik linki kopyalandı', body: `${link}\nİndirmek için tıkla.` });
+      const n = new Notification({ title: dt('clipTitle'), body: dt('clipBody', { link }) });
       n.on('click', () => {
         showMain();
         win.webContents.send('flacsync:clipboard-link', link);
@@ -186,7 +188,8 @@ export function setupCompanion(options: {
   ipcMain.on('flacsync:show-main', showMain);
   ipcMain.on('flacsync:desktop-prefs', (_e, next: unknown) => {
     if (typeof next !== 'object' || next === null) return;
-    const p = next as Partial<DesktopPrefs>;
+    const p = next as Partial<DesktopPrefs> & { lang?: unknown };
+    if (p.lang !== undefined) setDesktopLang(p.lang);
     const wasWatching = prefs.clipboardWatch;
     prefs = {
       closeToTray: typeof p.closeToTray === 'boolean' ? p.closeToTray : prefs.closeToTray,

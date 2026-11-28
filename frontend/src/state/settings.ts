@@ -134,6 +134,8 @@ export const useEqCustomSetting = () => useStoredState<[number, number, number, 
 // --- Masaüstü --------------------------------------------------------------------------------------
 
 /** Pencere kapatılınca tepside çalmaya devam et */
+/** Sıra bitince kütüphaneden benzer şarkılarla çalmaya devam et */
+export const useAutoplaySetting = () => useStoredState<boolean>('flacsync.autoplay', true, isBool);
 export const useCloseToTraySetting = () => useStoredState<boolean>('flacsync.closeToTray', true, isBool);
 /** Panoya kopyalanan müzik linklerini algıla */
 export const useClipboardWatchSetting = () => useStoredState<boolean>('flacsync.clipboardWatch', true, isBool);

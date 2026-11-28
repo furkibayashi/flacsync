@@ -267,6 +267,8 @@ export interface LibraryTrack {
   addedAt: string;
   playCount: number;
   lastPlayedAt: string | null;
+  /** Sevilen şarkı: işaretlendiği zaman; değilse null */
+  likedAt?: string | null;
   loudness?: number | null;
   relativePath: string;
   /** Sesin geldiği YouTube kaydı ve eşleşme güveni */

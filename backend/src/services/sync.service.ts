@@ -79,7 +79,7 @@ export class SyncService {
         w.pending = w.pending!.filter((x) => x !== p);
         if (!w.known.includes(p.url)) w.known.push(p.url);
         try {
-          playlistService.add(w.playlistId, [trackId]);
+          playlistService.add(this.ensurePlaylist(w), [trackId]);
         } catch (err) {
           logger.debug({ err }, 'Senkron: şarkı listeye eklenemedi');
         }
@@ -205,7 +205,9 @@ export class SyncService {
         }
         return !hit;
       });
-      if (inLibrary.length) playlistService.add(w.playlistId, inLibrary);
+      // Kullanıcı bağlı FlacSync listesini silmiş olabilir: yeniden oluşturulur (senkron kırılmasın)
+      const playlistId = this.ensurePlaylist(w);
+      if (inLibrary.length) playlistService.add(playlistId, inLibrary);
       const newPending = [...stillPending];
       if (toDownload.length) {
         const batch = jobsService.createBatch({
@@ -239,6 +241,16 @@ export class SyncService {
 
   flush(): Promise<void> {
     return this.store.flush();
+  }
+
+  /** Bağlı çalma listesi silindiyse aynı adla yeniden oluşturur; geçerli liste kimliğini döndürür */
+  private ensurePlaylist(w: WatchedPlaylist): string {
+    if (playlistService.get(w.playlistId)) return w.playlistId;
+    const created = playlistService.create(w.name);
+    logger.info({ playlist: w.name }, 'Liste senkronu: silinen çalma listesi yeniden oluşturuldu');
+    w.playlistId = created.id;
+    this.store.touch();
+    return created.id;
   }
 
   private find(id: string): WatchedPlaylist | undefined {

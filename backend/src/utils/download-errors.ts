@@ -59,6 +59,8 @@ const TRANSIENT = new Set<string>([
   'RATE_LIMITED',
   'ECONNRESET',
   'ETIMEDOUT',
+  /** Yarım kalan indirme (bağlantı koptu); yeniden denenince çoğu zaman tamamlanır */
+  'DOWNLOAD_TRUNCATED',
 ]);
 
 export const isTransientFailure = (code: string) => TRANSIENT.has(code);

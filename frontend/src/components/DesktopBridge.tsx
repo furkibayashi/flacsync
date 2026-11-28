@@ -15,7 +15,7 @@ import { useClipboardWatchSetting, useCloseToTraySetting } from '../state/settin
  */
 export function DesktopBridge({ onOpen }: { onOpen: (url: string) => void }) {
   const desktop = window.flacsync;
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const player = usePlayer();
   const { time, duration } = usePlayerProgress();
   const queue = useQueue();
@@ -25,8 +25,8 @@ export function DesktopBridge({ onOpen }: { onOpen: (url: string) => void }) {
   const [link, setLink] = useState<string | null>(null);
   const lastSent = useRef(0);
 
-  // Tercihler
-  useEffect(() => desktop?.setDesktopPrefs?.({ closeToTray, clipboardWatch }), [desktop, closeToTray, clipboardWatch]);
+  // Tercihler (dil: menü, tepsi ve bildirimler arayüzle aynı dilde olsun)
+  useEffect(() => desktop?.setDesktopPrefs?.({ closeToTray, clipboardWatch, lang }), [desktop, closeToTray, clipboardWatch, lang]);
 
   // Çalan şarkı: parça / durum değişince hemen, süre saniyede bir
   const track = player.current;

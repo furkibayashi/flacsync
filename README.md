@@ -26,7 +26,8 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
 - **Etiketler** — MP3: ID3v2 (başlık, sanatçı, albüm, yıl, tür, ISRC, parça no, kapak).
   FLAC: Vorbis comment + gömülü kapak.
 - **Zaman damgalı şarkı sözleri** — [LRCLib](https://lrclib.net)'ten bulunan LRC sözleri dosyaya gömülür
-  (FLAC: `LYRICS`, MP3: USLT + SYLT); oynatıcıda sözler şarkıyla birlikte akar.
+  (FLAC: `LYRICS`, MP3: USLT + SYLT); oynatıcıda sözler şarkıyla birlikte akar. Sözler sesten erken ya da
+  geç geliyorsa ±0,25 sn adımlarla kaydırılır; şarkı için hatırlanır.
 - **Oynatıcı** — Önceki / sonraki, karıştır, tekrar (tümü / tek), ilerleme çubuğu, kulağa göre ayarlı
   ses seviyesi, klavye ve medya tuşları. Albüm, keşfet ve arama sonuçlarında 30 sn önizleme; kütüphanede
   tam şarkı.
@@ -40,8 +41,12 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
 - **Sanatçı profilleri** — Sanatçı adına tıkla: popüler şarkılar, diskografi, benzer sanatçılar.
 - **Doğru türler** — Tür iTunes ve MusicBrainz'den belirlenir (Deezer'ın her şeye "Pop" demesi yerine);
   Kütüphane'de **Türleri düzelt** eski dosyaları da düzeltir, tür tıklanıp elle de değiştirilebilir.
-- **Çalma listeleri** — Kendi listelerin + akıllı listeler (en çok dinlenenler, son eklenenler, hiç
-  dinlenmeyenler); M3U8 olarak dışa aktar (VLC, foobar2000, MusicBee, telefon).
+- **Sevilen şarkılar** — Kütüphanede, oynatıcıda ve "Şimdi çalıyor" ekranında kalbe dokun; çoklu seçimle
+  topluca sev. Hepsi "Sevilen şarkılar" akıllı listesinde.
+- **Otomatik çalma** — Sıra bitince kütüphanendeki benzer şarkılarla (aynı sanatçı, tür, dönem) çalmaya
+  devam eder; Ayarlar'dan kapatılabilir.
+- **Çalma listeleri** — Kendi listelerin + akıllı listeler (sevilenler, en çok dinlenenler, son eklenenler,
+  hiç dinlenmeyenler); M3U8 olarak dışa aktar (VLC, foobar2000, MusicBee, telefon).
 - **Sanatçı takibi** — Takip ettiğin sanatçıların yeni albüm ve single'ları ana sayfada.
 - **Şimdi çalıyor ekranı** — Büyük kapak, dönen plak, akan sözler, sıradakiler; **uyku zamanlayıcı**.
 - **Liste senkronu** — Spotify / Apple Music / Deezer / YouTube Music listesini takibe al; yeni eklenen
@@ -62,7 +67,7 @@ uygulaması. Tek şarkı, albüm ve çalma listesi destekler.
 - **Ana sayfa ve geçmiş** — İstatistikler, şu an inenler ve uygulama kapanınca da duran
   "Son indirilenler" listesi.
 - **İndirme sırası** — Tüm indirmeler tek yerde: albüm / seçime göre gruplu, iptal, yeniden dene,
-  süre ve codec bilgisi. Arama sonuçlarından tek tıkla ya da çoklu seçimle sıraya ekle.
+  süre ve codec bilgisi; albümü tek tıkla iptal et ya da başarısızlarını yeniden dene, sırayı elle duraklat. Arama sonuçlarından tek tıkla ya da çoklu seçimle sıraya ekle.
 - **Hızlı** — Aynı anda 4 indirme; eşleştirmede alınan bilgi indirmede yeniden kullanılır
   (1.1.0'a göre tek şarkı ~%45, albüm ~2 kat daha hızlı).
 - **6 dil** — Türkçe, English, Deutsch, Español, Français, Русский.
@@ -176,6 +181,9 @@ desktop/    Electron kabuğu ve Windows paketleme (electron-builder)
 | `GET /api/library` · `POST /api/library/rescan` | Kütüphane listesi / klasörü yeniden tara |
 | `GET /api/library/tracks/:id/stream` | Kütüphanedeki dosyayı çal (Range destekli) |
 | `GET`/`POST /api/library/tracks/:id/lyrics` | Dosyadaki sözler / sözleri bulup dosyaya göm |
+| `GET /api/library/liked` · `POST /api/library/tracks/:id/like` `{liked}` · `POST /api/library/like` `{ids, liked}` | Sevilen şarkılar |
+| `POST /api/queue/pause` · `POST /api/queue/resume` | İndirme sırasını duraklat / sürdür |
+| `POST /api/batch/:id/cancel` · `POST /api/batch/:id/retry` | Albüm / liste indirmesini topluca iptal et / başarısızları yeniden dene |
 
 ## Katkı
 
@@ -214,6 +222,8 @@ Music, Deezer or YouTube Music link — or just a song name — and saves it as 
   and the file is rebuilt in place with its tags, cover, lyrics and playlists kept.
 - **Your own folders**: change the download folder, add existing music folders, optionally write
   ReplayGain tags and `.lrc` lyric files next to songs.
+- **Liked songs, autoplay and lyric timing**: heart songs anywhere, keep playing similar songs from
+  your library when the queue ends, and nudge out-of-sync lyrics by ±0.25 s.
 - **Six languages**: Turkish, English, German, Spanish, French, Russian.
 
 Download the installer (`FlacSync-Setup-x.y.z.exe`) or the portable exe from [Releases](../../releases).

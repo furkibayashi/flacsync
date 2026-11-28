@@ -15,6 +15,7 @@ import {
   Tags,
   Trash2,
   X,
+  Heart,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddToPlaylist } from '../components/AddToPlaylist';
@@ -28,6 +29,7 @@ import { foldText } from '../lib/text';
 import { formatNumber } from '../lib/time';
 import { api, isAbort, toUiError, type UiError } from '../services/api';
 import { invalidateLibraryMatch } from '../state/libraryMatch';
+import { setLikedMany, useLikedSet } from '../state/likes';
 import { usePlayer } from '../state/PlayerProvider';
 import { useQueue } from '../state/QueueProvider';
 import type { Route } from '../state/router';
@@ -357,6 +359,8 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
   };
 
   const selectedTracks = useMemo(() => list.filter((x) => selected.has(x.id)), [list, selected]);
+  const likedSet = useLikedSet();
+  const allSelectedLiked = selectedTracks.length > 0 && selectedTracks.every((x) => likedSet.has(x.id));
 
   const stopSelecting = () => {
     setSelecting(false);
@@ -735,6 +739,20 @@ export function LibraryPage({ onNavigate }: { onNavigate: (route: Route) => void
                     className="grid size-9 place-items-center rounded-lg bg-raised text-paper ring-1 ring-rule hover:ring-dust disabled:opacity-40"
                   >
                     <ListEnd className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedTracks.length}
+                    onClick={() => void setLikedMany(selectedTracks.map((x) => x.id), !allSelectedLiked, t('player.likeFailed'))}
+                    aria-pressed={allSelectedLiked}
+                    title={allSelectedLiked ? t('player.unlike') : t('player.like')}
+                    aria-label={allSelectedLiked ? t('player.unlike') : t('player.like')}
+                    className={clsx(
+                      'grid size-9 place-items-center rounded-lg bg-raised ring-1 ring-rule hover:ring-dust disabled:opacity-40',
+                      allSelectedLiked ? 'text-danger' : 'text-paper',
+                    )}
+                  >
+                    <Heart className={clsx('size-4', allSelectedLiked && 'fill-current')} />
                   </button>
                   {selectedTracks.length > 0 && <AddToPlaylist trackIds={selectedTracks.map((x) => x.id)} side="bottom" className="rounded-lg" />}
                   {(
